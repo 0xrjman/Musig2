@@ -1,0 +1,32 @@
+[package]
+name = "musig2"
+version = "0.1.0"
+authors = ["The ChainX Authors"]
+description = "A implementations of Simple Two-Round Schnorr Multi-Signatures."
+edition = "2018"
+license = "GPL-3.0"
+
+[dependencies]
+# TODO: After determining the curve, modify the corresponding library
+#secp256kfun = { version = "0.6.1" }
+#secp256k1 = { version = "0.20.3" }
+#libsecp256k1 = { version = "0.6.0" }
+curv = { git = "https://github.com/rjman-ljm/curv", branch = "musig2", default-features=false }
+hex = {version = "0.4.3"}
+centipede = { git = "https://github.com/rjman-ljm/centipede", branch = "musig2", default-features = false }
+
+libp2p = { version = "0.39.1", features = ["tcp-tokio", "mdns"] }
+tokio = { version = "1.0.1", features = ["full"] }
+serde = {version = "=1.0", features = ["derive"] }
+serde_json = "^1.0"
+serde_derive = "1.0"
+once_cell = "1.5"
+log = "0.4"
+pretty_env_logger = "0.4"
+lazy_static = "1.4.0"
+void = { default-features = false, version = "1.0" }
+tracing = { default-features = false, features = ["log"], version = "0.1" }
+tracing-futures = { default-features = false, features = ["std-future", "std", "futures-03"], version = "0.2" }
+
+[features]
+default = ["curv/rust-gmp-kzen"]
