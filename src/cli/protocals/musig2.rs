@@ -29,8 +29,8 @@ use curv::BigInt;
 
 use serde::{Deserialize, Serialize};
 
-type GE = curv::elliptic::curves::secp256_k1::GE;
-type FE = curv::elliptic::curves::secp256_k1::FE;
+pub type GE = curv::elliptic::curves::secp256_k1::GE;
+pub type FE = curv::elliptic::curves::secp256_k1::FE;
 
 #[allow(non_upper_case_globals)]
 const Nv: usize = 2;
