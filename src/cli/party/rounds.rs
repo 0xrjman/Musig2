@@ -2,12 +2,10 @@ use super::traits::push::Push;
 use super::broadcast::BroadcastMsgs;
 use super::Store;
 use super::traits::state_machine::Msg;
-use sha2::{Digest, Sha256};
 use super::broadcast::BroadcastMsgsStore;
 use crate::cli::protocals::musig2::{verify, GE, FE, KeyPair, KeyAgg, sign, sign_double_prime};
 use crate::cli::protocals::{State, StatePrime};
 use curv::BigInt;
-use std::hint::unreachable_unchecked;
 use serde::{Deserialize, Serialize};
 use curv::elliptic::curves::traits::ECPoint;
 
@@ -141,7 +139,7 @@ impl Round2 {
         let s = sign_double_prime(self.state2, &received_round2);
 
         assert!(verify(&s, &self.r.x_coor().unwrap(), &self.key_agg.X_tilde, &self.commit).is_ok());
-
+        println!("party index:{} verify success.", self.my_ind);
         Ok(SignResult {
             r: self.r.clone(),
             s,
@@ -163,8 +161,6 @@ pub struct SignResult {
     pub s: FE,
     pub commit: BigInt,
 }
-
-pub type OutputRandomValue = u32;
 
 // Messages
 

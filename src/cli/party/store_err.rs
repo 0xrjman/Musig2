@@ -11,14 +11,14 @@ pub enum StoreErr {
     #[error("unknown message sender: {sender}")]
     UnknownSender { sender: u16 },
     /// Got broadcast message, whereas P2P message is expected
-    #[error("unexpected broadcast message (P2P is expected)")]
-    ExpectedP2P,
+    // #[error("unexpected broadcast message (P2P is expected)")]
+    // ExpectedP2P,
     /// Got P2P message, whereas broadcast message is expected
     #[error("unexpected P2P message (broadcast is expected)")]
     ExpectedBroadcast,
     /// Got message that addressed to another party (`msg.receiver != me`)
-    #[error("got message which was addressed to someone else")]
-    NotForMe,
+    // #[error("got message which was addressed to someone else")]
+    // NotForMe,
     /// Got message which sent by this party
     #[error("got message which was sent by this party")]
     ItsFromMe,
