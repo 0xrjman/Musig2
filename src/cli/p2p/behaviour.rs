@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use tracing::trace;
 
 use super::SwarmOptions;
-use crate::cli::protocals::musig2::*;
+use crate::cli::protocals::signature::*;
 use crate::{
     C, KEYAGG, KEY_PAIR, MSG, PENDINGSTATE, PKS, R, ROUND1, ROUND2, S, SIGNSTATE, STATE0, STATE1,
     TOPIC,

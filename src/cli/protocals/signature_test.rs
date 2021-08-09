@@ -1,7 +1,7 @@
 #[allow(non_snake_case)]
 #[test]
 fn test_multiparty_signing_for_two_parties() {
-    use crate::cli::protocals::musig2::*;
+    use crate::cli::protocals::signature::*;
     use curv::elliptic::curves::{secp256_k1::GE, traits::ECPoint};
 
     let message: [u8; 4] = [79, 77, 69, 82];

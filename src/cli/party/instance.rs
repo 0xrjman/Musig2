@@ -1,22 +1,21 @@
-use std::fmt;
-use std::mem::replace;
-use std::time::Duration;
+#![allow(dead_code)]
+use std::{fmt, mem::replace, time::Duration};
 
 use super::{
-    traits::push::{Push, PushExt}
+    broadcast::BroadcastMsgs,
+    rounds,
+    rounds::{MessageRound1, MessageRound2, Prepare, ProceedError, Round1, Round2, SignResult},
+    store_err::StoreErr,
+    traits::push::{Push, PushExt},
+    traits::{
+        message::MessageStore,
+        state_machine::{IsCritical, Msg, StateMachine},
+    },
+    Store,
 };
-use super::Store;
+use crate::cli::protocals::signature::KeyPair;
 
-use super::broadcast::BroadcastMsgs;
-use super::rounds;
-use super::traits::state_machine::{Msg, StateMachine, IsCritical};
-use super::store_err::StoreErr;
-use super::traits::message::MessageStore;
-pub use super::rounds::{ProceedError};
-use super::rounds::{Prepare,Round1, Round2, MessageRound1, MessageRound2, SignResult};
-use crate::cli::protocals::musig2::{KeyPair};
-
-pub struct MultiPartyGenRandom {
+pub struct Musig2Instance {
     round: R,
     msgs1: Option<Store<BroadcastMsgs<MessageRound1>>>,
     msgs2: Option<Store<BroadcastMsgs<MessageRound2>>>,
@@ -25,22 +24,20 @@ pub struct MultiPartyGenRandom {
     party_n: u16,
 }
 
-impl MultiPartyGenRandom {
-
+impl Musig2Instance {
     pub fn with_fixed_seed(
         party_i: u16,
         party_n: u16,
         message: Vec<u8>,
         key_pair: KeyPair,
     ) -> Self {
-
         Self {
             party_i,
             party_n,
-            round: R::Prepare(Prepare{
+            round: R::Prepare(Prepare {
                 my_ind: party_i,
                 key_pair,
-                message
+                message,
             }),
             msgs1: Some(Round1::expects_messages(party_i, party_n)),
             msgs2: Some(Round2::expects_messages(party_i, party_n)),
@@ -113,7 +110,7 @@ impl MultiPartyGenRandom {
     }
 }
 
-impl StateMachine for MultiPartyGenRandom {
+impl StateMachine for Musig2Instance {
     type MessageBody = ProtocolMessage;
     type Err = Error;
     type Output = SignResult;
@@ -231,7 +228,7 @@ impl StateMachine for MultiPartyGenRandom {
     }
 }
 
-impl fmt::Debug for MultiPartyGenRandom {
+impl fmt::Debug for Musig2Instance {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let current_round = match &self.round {
             R::Prepare(_) => "0",
@@ -266,7 +263,7 @@ pub enum R {
     Round1(Round1),
     Round2(Round2),
     Finished(SignResult),
-    Gone
+    Gone,
 }
 
 // Messages

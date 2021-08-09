@@ -32,20 +32,16 @@ impl Node {
     }
 
     pub async fn run(&mut self) -> Result<(), Box<dyn Error>> {
-        let mut stdin = tokio::io::BufReader::new(tokio::io::stdin()).lines();
-        Swarm::listen_on(
-            &mut self.swarm,
-            "/ip4/0.0.0.0/tcp/0"
-                .parse()
-                .expect("can get a local socket"),
-        )
-        .expect("swarm can be started");
+        let addr = self.swarm.behaviour_mut().options().listening_addrs.clone();
+        Swarm::listen_on(&mut self.swarm, addr).expect("swarm can be started");
+
         SIGNSTATE
             .lock()
             .unwrap()
             .insert(TOPIC.to_owned(), SignState::Round2End);
 
         loop {
+            let mut stdin = tokio::io::BufReader::new(tokio::io::stdin()).lines();
             let evt = {
                 tokio::select! {
                     line = stdin.next_line() => Some(EventType::Input(line.expect("can get line").expect("can read line from stdin"))),

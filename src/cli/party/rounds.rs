@@ -1,13 +1,13 @@
-use super::traits::push::Push;
 use super::broadcast::BroadcastMsgs;
-use super::Store;
-use super::traits::state_machine::Msg;
 use super::broadcast::BroadcastMsgsStore;
-use crate::cli::protocals::musig2::{verify, GE, FE, KeyPair, KeyAgg, sign, sign_double_prime};
+use super::traits::push::Push;
+use super::traits::state_machine::Msg;
+use super::Store;
+use crate::cli::protocals::signature::{sign, sign_double_prime, verify, KeyAgg, KeyPair, FE, GE};
 use crate::cli::protocals::{State, StatePrime};
+use curv::elliptic::curves::traits::ECPoint;
 use curv::BigInt;
 use serde::{Deserialize, Serialize};
-use curv::elliptic::curves::traits::ECPoint;
 
 #[derive(Debug)]
 pub struct Prepare {
@@ -18,28 +18,26 @@ pub struct Prepare {
 
 impl Prepare {
     pub fn proceed<O>(self, mut output: O) -> Result<Round1>
-        where
-            O: Push<Msg<MessageRound1>>,
+    where
+        O: Push<Msg<MessageRound1>>,
     {
         let (ephemeral_keys, state1) = sign(self.key_pair.clone());
 
-        output.push(
-            Msg {
-                sender: self.my_ind,
-                receiver: None,
-                body: MessageRound1 {
-                    ephemeral_keys,
-                    message: self.message.clone(),
-                    pubkey: self.key_pair.clone().public_key,
-                },
-            }
-        );
+        output.push(Msg {
+            sender: self.my_ind,
+            receiver: None,
+            body: MessageRound1 {
+                ephemeral_keys,
+                message: self.message.clone(),
+                pubkey: self.key_pair.public_key,
+            },
+        });
 
         Ok(Round1 {
             my_ind: self.my_ind,
             state1,
             key_pair: self.key_pair.clone(),
-            message: self.message.clone(),
+            message: self.message,
         })
     }
     pub fn is_expensive(&self) -> bool {
@@ -63,11 +61,10 @@ pub struct MessageRound1 {
     pub pubkey: GE,
 }
 
-
 impl Round1 {
     pub fn proceed<O>(self, input: BroadcastMsgs<MessageRound1>, mut output: O) -> Result<Round2>
-        where
-            O: Push<Msg<MessageRound2>>,
+    where
+        O: Push<Msg<MessageRound2>>,
     {
         let mut pks = vec![];
         let mut received_nonce = vec![];
@@ -75,25 +72,27 @@ impl Round1 {
 
         for i in 0..input.msgs.len() {
             if i + 1 == cur_ind {
-                pks.push(self.key_pair.public_key.clone());
+                pks.push(self.key_pair.public_key);
             }
-            pks.push(input.msgs[i].pubkey.clone());
+            pks.push(input.msgs[i].pubkey);
             received_nonce.push(input.msgs[i].ephemeral_keys.clone());
         }
         if input.msgs.len() + 1 == cur_ind {
-            pks.push(self.key_pair.public_key.clone());
+            pks.push(self.key_pair.public_key);
         }
         let party_index: usize = (self.my_ind - 1) as usize;
         println!("pks:{:?}", pks);
         let key_agg = KeyAgg::key_aggregation_n(&pks, party_index);
-        let (state2, sign_fragment) = self.state1.sign_prime(&self.message, &pks, received_nonce.clone(), party_index);
-        let (commit, r, _) = self.state1.compute_global_params(&self.message, &pks, received_nonce, party_index);
+        let (state2, sign_fragment) =
+            self.state1
+                .sign_prime(&self.message, &pks, received_nonce.clone(), party_index);
+        let (commit, r, _) =
+            self.state1
+                .compute_global_params(&self.message, &pks, received_nonce, party_index);
         output.push(Msg {
             sender: self.my_ind,
             receiver: None,
-            body: MessageRound2 {
-                sign_fragment
-            },
+            body: MessageRound2 { sign_fragment },
         });
 
         Ok(Round2 {
@@ -101,7 +100,7 @@ impl Round1 {
             commit,
             r,
             state2,
-            key_pair: self.key_pair.clone(),
+            key_pair: self.key_pair,
             key_agg,
         })
     }
@@ -134,16 +133,22 @@ impl Round2 {
     pub fn proceed(self, input: BroadcastMsgs<MessageRound2>) -> Result<SignResult> {
         let mut received_round2 = vec![];
         for i in 0..input.msgs.len() {
-            received_round2.push(input.msgs[i].sign_fragment.clone());
+            received_round2.push(input.msgs[i].sign_fragment);
         }
         let s = sign_double_prime(self.state2, &received_round2);
 
-        assert!(verify(&s, &self.r.x_coor().unwrap(), &self.key_agg.X_tilde, &self.commit).is_ok());
+        assert!(verify(
+            &s,
+            &self.r.x_coor().unwrap(),
+            &self.key_agg.X_tilde,
+            &self.commit
+        )
+        .is_ok());
         println!("party index:{} verify success.", self.my_ind);
         Ok(SignResult {
-            r: self.r.clone(),
+            r: self.r,
             s,
-            commit: self.commit.clone(),
+            commit: self.commit,
         })
     }
     pub fn expects_messages(party_i: u16, party_n: u16) -> Store<BroadcastMsgs<MessageRound2>> {
@@ -181,4 +186,3 @@ type Result<T> = std::result::Result<T, ProceedError>;
 pub enum ProceedError {
     PartiesDidntRevealItsSeed { party_ind: Vec<u16> },
 }
-

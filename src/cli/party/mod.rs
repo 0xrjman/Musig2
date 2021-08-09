@@ -3,10 +3,10 @@
 use traits::message::MessageContainer;
 
 mod broadcast;
+mod instance;
+mod rounds;
+mod sim;
 mod store_err;
 mod traits;
-mod rounds;
-mod party;
-mod sim;
 
 pub type Store<C> = <C as MessageContainer>::Store;

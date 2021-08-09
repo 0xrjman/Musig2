@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use std::fmt::Debug;
 
 use crate::cli::party::traits::state_machine::*;
@@ -87,11 +88,11 @@ impl<P> Simulation<P> {
 }
 
 impl<P> Simulation<P>
-    where
-        P: StateMachine,
-        P: Debug,
-        P::Err: Debug,
-        P::MessageBody: Debug + Clone,
+where
+    P: StateMachine,
+    P: Debug,
+    P::Err: Debug,
+    P::MessageBody: Debug + Clone,
 {
     /// Runs a simulation
     ///
@@ -148,11 +149,11 @@ struct Party<'p, P> {
 }
 
 impl<'p, P> Party<'p, P>
-    where
-        P: StateMachine,
-        P: Debug,
-        P::Err: Debug,
-        P::MessageBody: Debug + Clone,
+where
+    P: StateMachine,
+    P: Debug,
+    P::Err: Debug,
+    P::MessageBody: Debug + Clone,
 {
     pub fn proceed_if_needed(&mut self, benchmark: &mut Benchmark) -> Result<(), P::Err> {
         if !self.state.wants_to_proceed() {
@@ -228,11 +229,11 @@ impl<'p, P> Party<'p, P>
 }
 
 fn finish_if_possible<P>(parties: &mut Vec<Party<P>>) -> Result<Option<Vec<P::Output>>, P::Err>
-    where
-        P: StateMachine,
-        P: Debug,
-        P::Err: Debug,
-        P::MessageBody: Debug + Clone,
+where
+    P: StateMachine,
+    P: Debug,
+    P::Err: Debug,
+    P::MessageBody: Debug + Clone,
 {
     let someone_is_finished = parties.iter().any(|p| p.state.is_finished());
     if !someone_is_finished {
@@ -278,7 +279,7 @@ fn finish_if_possible<P>(parties: &mut Vec<Party<P>>) -> Result<Option<Vec<P::Ou
 
 #[cfg(test)]
 mod tests {
-    use crate::cli::party::{party::MultiPartyGenRandom, sim::simulation::Simulation};
+    use crate::cli::party::{instance::Musig2Instance, sim::simulation::Simulation};
     use crate::cli::protocals::KeyPair;
 
     #[test]
@@ -291,9 +292,9 @@ mod tests {
         let mut simulation = Simulation::new();
         simulation
             .enable_benchmarks(true)
-            .add_party(MultiPartyGenRandom::with_fixed_seed(1, 3, message.clone(), kp1))
-            .add_party(MultiPartyGenRandom::with_fixed_seed(2, 3, message.clone(), kp2))
-            .add_party(MultiPartyGenRandom::with_fixed_seed(3, 3, message.clone(), kp3));
+            .add_party(Musig2Instance::with_fixed_seed(1, 3, message.clone(), kp1))
+            .add_party(Musig2Instance::with_fixed_seed(2, 3, message.clone(), kp2))
+            .add_party(Musig2Instance::with_fixed_seed(3, 3, message.clone(), kp3));
         let result = simulation.run().expect("simulation failed");
         println!("sign result:{:?}", result[0]);
         println!("Benchmarks:");

@@ -28,7 +28,7 @@ pub struct SwarmOptions {
     /// The subscription topic
     pub topic: Topic,
     /// Bound listening addresses; by default the node will not listen on any address.
-    pub listening_addrs: Vec<Multiaddr>,
+    pub listening_addrs: Multiaddr,
     /// Enables mdns for peer discovery and announcement when true.
     pub mdns: bool,
 }
@@ -36,7 +36,7 @@ pub struct SwarmOptions {
 impl SwarmOptions {
     /// Creates for any testing purposes.
     pub fn new_test_options() -> Self {
-        let keypair = Keypair::generate_ed25519();
+        let keypair = Keypair::generate_secp256k1();
         let peer_id = PeerId::from(keypair.public());
         let topic = Topic::new("test");
         log::info!("Local peer id: {:?}", peer_id);
@@ -45,7 +45,7 @@ impl SwarmOptions {
             keypair,
             peer_id,
             topic,
-            listening_addrs: vec!["/ip4/0.0.0.0/tcp/0".parse().unwrap()],
+            listening_addrs: "/ip4/0.0.0.0/tcp/0".parse().unwrap(),
             // listening_addrs: vec!["/ip4/127.0.0.1/tcp/0".parse().unwrap()],
             mdns: true,
         }

@@ -33,7 +33,7 @@ lazy_static! {
 mod cli;
 use cli::node::Node;
 use cli::p2p::behaviour::*;
-use cli::protocals::musig2::*;
+use cli::protocals::signature::*;
 
 #[tokio::main]
 async fn main() {
