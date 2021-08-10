@@ -12,9 +12,8 @@ license = "GPL-3.0"
 #secp256k1 = { version = "0.20.3" }
 #libsecp256k1 = { version = "0.6.0" }
 curv = { git = "https://github.com/rjman-ljm/curv", branch = "musig2", default-features=false }
-hex = {version = "0.4.3"}
 centipede = { git = "https://github.com/rjman-ljm/centipede", branch = "musig2", default-features = false }
-
+hex = {version = "0.4.3"}
 rand = "0.8.4"
 libp2p = { version = "0.39.1", features = ["tcp-tokio", "mdns"] }
 tokio = { version = "1.0.1", features = ["full"] }
