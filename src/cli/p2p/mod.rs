@@ -19,6 +19,11 @@ pub use transport::build_transport;
 use super::protocals::signature;
 use crate::TOPIC;
 
+use crate::cli::party::{traits::state_machine::Msg, instance::ProtocolMessage};
+use crate::cli::party::musig2::{Sender, Receiver};
+
+use tokio::sync::broadcast;
+
 /// Type alias for [`libp2p::Swarm`] running the [`behaviour::Behaviour`] with the given [`SignatureBehaviour`].
 pub type TSwarm = libp2p::swarm::Swarm<behaviour::SignatureBehaviour>;
 /// Type alias for [`cuve::secp256k1::keypair`]
@@ -43,11 +48,13 @@ pub struct SwarmOptions {
     pub listening_addrs: Multiaddr,
     /// Enables mdns for peer discovery and announcement when true.
     pub mdns: bool,
+    /// Responsible for transferring the data flow from other parties to the state machine
+    pub tx: broadcast::Sender<Msg<ProtocolMessage>>,
 }
 
 impl SwarmOptions {
     /// Creates for any testing purposes.
-    pub fn new_test_options() -> Self {
+    pub fn new_test_options(send: Sender) -> Self {
         let keypair = Keypair::generate_secp256k1();
         let keyring = Keyring::create();
         let peer_id = PeerId::from(keypair.public());
@@ -56,6 +63,8 @@ impl SwarmOptions {
         log::info!("Local peer id: {:?}", peer_id);
 
         Self {
+            tx: send,
+            // rx: receive,
             store_path: env::temp_dir(),
             keypair,
             keyring,

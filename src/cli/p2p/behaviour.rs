@@ -21,6 +21,9 @@ use crate::{
     TOPIC,
 };
 
+use crate::cli::party::{traits::state_machine::Msg, instance::ProtocolMessage};
+
+
 #[derive(Clone, Debug)]
 pub enum SignState {
     Prepare(Message),
@@ -36,6 +39,7 @@ pub enum EventType {
     Response(Message),
     Input(String),
     Send(Message),
+    Response1(Msg<ProtocolMessage>)
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -206,6 +210,9 @@ impl NetworkBehaviourEventProcess<PingEvent> for SignatureBehaviour {
 impl NetworkBehaviourEventProcess<FloodsubEvent> for SignatureBehaviour {
     fn inject_event(&mut self, event: FloodsubEvent) {
         if let FloodsubEvent::Message(msg) = event {
+            /* todo!The event type here may need to be redefined, and then it can receive
+                ProtocolMessage messages from other parties and send them to rx of the finite state machine
+                through swarm.behaviour_mut().options().tx */
             if let Ok(resp) = serde_json::from_slice::<Message>(&msg.data) {
                 match resp {
                     Message::Round1(r1) => {

@@ -8,16 +8,25 @@ use libp2p::{
     floodsub::Topic,
     futures::StreamExt,
     swarm::{Swarm, SwarmEvent},
-    Multiaddr,
+    Multiaddr, PeerId,
 };
 use log::{debug, error, info};
 use std::error::Error;
 use tokio::io::AsyncBufReadExt;
+use tokio::sync::broadcast;
+use crate::cli::party::{traits::state_machine::Msg, instance::ProtocolMessage};
+use crate::cli::party::traits::state_machine::StateMachine;
+use crate::cli::party::musig2::{Outgoing, incoming};
+use crate::cli::party::async_protocol::AsyncProtocol;
+use crate::cli::party::{async_protocol, watcher::StderrWatcher};
+use std::sync::{Mutex, Arc};
 
 pub struct Node {
     swarm: TSwarm,
     pub party: Musig2Party<Multiaddr>,
     pub other: Other,
+    /// Responsible for sending the data of the state machine to other parties
+    pub rx: broadcast::Receiver<Msg<ProtocolMessage>>,
 }
 
 pub struct Other {
@@ -26,23 +35,53 @@ pub struct Other {
 
 impl Node {
     pub async fn init() -> Node {
-        let options = SwarmOptions::new_test_options();
+        let (tx1, _) = broadcast::channel(50);
+        let (tx2, rx2) = broadcast::channel(50);
+
+        let options = SwarmOptions::new_test_options(tx1);
         let mut swarm = create_swarm(options.clone()).await.unwrap();
         let topic = swarm.behaviour_mut().options().topic.clone();
 
-        let instance = Musig2Instance::with_fixed_seed(1, 3, Vec::from("test"), options.keyring);
-
-        let party = Musig2Party::new(instance);
+        let party = Musig2Party::new(tx2);
 
         Node {
+            rx: rx2,
             swarm,
             party,
             other: Other { topic },
         }
     }
 
-    pub fn add_party(&mut self, endpoint: ConnectedPoint) {
+    pub async fn add_instance(&mut self, msg: Vec<u8>) {
+        let key_pair = self.swarm.behaviour_mut().options().keyring.clone();
+        let cur_peer_id = self.swarm.behaviour_mut().options().peer_id;
+        let mut peer_ids = self.party.peer_ids.clone();
+        peer_ids.push(cur_peer_id.clone());
+        peer_ids.sort();
+        let party_n = peer_ids.len() as u16;
+        let mut party_i = 0;
+        for (k, peer_id) in peer_ids.iter().enumerate() {
+            if peer_id.as_ref() == cur_peer_id.as_ref() {
+                party_i = (k + 1) as u16;
+            }
+        }
+        assert!(party_i > 0, "party_i must be positive!");
+        let instance = Musig2Instance::with_fixed_seed(party_i, party_n, msg, key_pair);
+        let rx = self.swarm.behaviour_mut().options().tx.subscribe();
+        self.party.add_instance(instance, rx);
+        let mut party = self.party.instance.as_mut().expect("instance must exist");
+        // party.run().await;
+
+        // todo!: Asynchronous thread runs up the state machine
+        // let h = tokio::spawn(async move {
+        //     party.run().await
+        // });
+        // h.await;
+    }
+
+    pub fn add_party(&mut self, endpoint: ConnectedPoint, peer_id: PeerId) {
         self.party.add_party(connection_point_addr(endpoint));
+        self.party.add_peer_id(peer_id);
     }
 
     pub fn remove_party(&mut self, endpoint: ConnectedPoint) {
@@ -55,6 +94,26 @@ impl Node {
         for p in self.party.parties.iter() {
             info!("{}", p);
         }
+    }
+
+    pub async fn handle_sign(&mut self, cmd: &str) {
+        // let topic = swarm.behaviour_mut().options().topic.clone();
+        let rest = cmd.strip_prefix("sign ").unwrap();
+        let msg = Vec::from(rest.as_bytes());
+        // let state = SIGNSTATE.lock().unwrap().get(&topic).unwrap().clone();
+        // if let SignState::Round2End = state {
+        //     SIGNSTATE
+        //         .lock()
+        //         .unwrap()
+        //         .insert(topic.clone(), SignState::Round1Send);
+        //     println!(
+        //         "peerid start sign, send round1:{:?}",
+        //         swarm.behaviour_mut().options().peer_id.clone()
+        //     );
+        //     MSG.lock().unwrap().insert(topic, msg.clone());
+        //     swarm.behaviour_mut().solve_msg_in_generating_round_1(msg);
+        // };
+        self.add_instance(msg).await;
     }
 
     pub async fn run(&mut self) -> Result<(), Box<dyn Error>> {
@@ -73,8 +132,8 @@ impl Node {
                     line = stdin.next_line() => Some(EventType::Input(line.expect("can get line").expect("can read line from stdin"))),
                     event = self.swarm.select_next_some() => {
                         match event {
-                            SwarmEvent::ConnectionEstablished { endpoint, .. } => {
-                                self.add_party(endpoint.clone());
+                            SwarmEvent::ConnectionEstablished { peer_id, endpoint, .. } => {
+                                self.add_party(endpoint.clone(), peer_id.clone());
                                 self.list_parties();
                                 info!("Connected in {:?}", is_dialer_connection(endpoint));
                             },
@@ -91,11 +150,16 @@ impl Node {
                     },
                     // response = response_rcv.recv() => Some(EventType::Response(response.expect("response exists"))),
                     send = state_into_event(SIGNSTATE.lock().unwrap().get(&self.other.topic.clone()).unwrap().clone()) => send,
+                    recv = self.rx.recv() => Some(EventType::Response1(recv.expect("recv exists"))),
                 }
             };
 
             if let Some(event) = evt {
                 match event {
+                    EventType::Response1(m) => {
+                        // todo! Receive data from the outgoing tx of the state machine and publish through swam
+                        println!("Response1:{:?}", m);
+                    }
                     EventType::Response(resp) => {
                         let json = serde_json::to_string(&resp).expect("can jsonify response");
                         self.swarm
@@ -104,7 +168,7 @@ impl Node {
                             .publish(TOPIC.to_owned(), json.as_bytes());
                     }
                     EventType::Input(line) => match line.as_str() {
-                        cmd if cmd.starts_with("sign") => handle_sign(cmd, &mut self.swarm).await,
+                        cmd if cmd.starts_with("sign") => self.handle_sign(cmd).await,
                         cmd if cmd.starts_with("verify") => {
                             self.swarm.behaviour_mut().verify_sign().await
                         }
@@ -168,21 +232,22 @@ pub async fn state_into_event(e: SignState) -> Option<EventType> {
     }
 }
 
-pub async fn handle_sign(cmd: &str, swarm: &mut Swarm<SignatureBehaviour>) {
-    let topic = swarm.behaviour_mut().options().topic.clone();
-    let rest = cmd.strip_prefix("sign ").unwrap();
-    let msg = Vec::from(rest.as_bytes());
-    let state = SIGNSTATE.lock().unwrap().get(&topic).unwrap().clone();
-    if let SignState::Round2End = state {
-        SIGNSTATE
-            .lock()
-            .unwrap()
-            .insert(topic.clone(), SignState::Round1Send);
-        println!(
-            "peerid start sign, send round1:{:?}",
-            swarm.behaviour_mut().options().peer_id.clone()
-        );
-        MSG.lock().unwrap().insert(topic, msg.clone());
-        swarm.behaviour_mut().solve_msg_in_generating_round_1(msg);
-    };
-}
+// pub async fn handle_sign(cmd: &str, swarm: &mut Swarm<SignatureBehaviour>) {
+//     // let topic = swarm.behaviour_mut().options().topic.clone();
+//     let rest = cmd.strip_prefix("sign ").unwrap();
+//     let msg = Vec::from(rest.as_bytes());
+//     // let state = SIGNSTATE.lock().unwrap().get(&topic).unwrap().clone();
+//     // if let SignState::Round2End = state {
+//     //     SIGNSTATE
+//     //         .lock()
+//     //         .unwrap()
+//     //         .insert(topic.clone(), SignState::Round1Send);
+//     //     println!(
+//     //         "peerid start sign, send round1:{:?}",
+//     //         swarm.behaviour_mut().options().peer_id.clone()
+//     //     );
+//     //     MSG.lock().unwrap().insert(topic, msg.clone());
+//     //     swarm.behaviour_mut().solve_msg_in_generating_round_1(msg);
+//     // };
+//     // let
+// }

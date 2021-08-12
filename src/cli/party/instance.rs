@@ -1,6 +1,8 @@
 #![allow(dead_code)]
 use std::{fmt, mem::replace, time::Duration};
 
+use serde::{Deserialize, Serialize};
+
 use super::{
     broadcast::BroadcastMsgs,
     rounds,
@@ -271,10 +273,10 @@ pub enum R {
 /// Protocol message
 ///
 /// Hides message structure so it could be changed without breaking semver policy.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ProtocolMessage(M);
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 enum M {
     Round1(rounds::MessageRound1),
     Round2(rounds::MessageRound2),
