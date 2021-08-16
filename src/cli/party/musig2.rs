@@ -1,25 +1,26 @@
 #![allow(dead_code)]
 
+use futures::sink::Sink;
 use libp2p::{Multiaddr, PeerId};
 use std::fmt::Debug;
 use std::pin::Pin;
-use futures::sink::Sink;
 use std::task::{Context, Poll};
 
-use crate::cli::party::traits::state_machine::*;
-use futures::future::ready;
-use futures::stream::{FusedStream, StreamExt};
+use crate::cli::party::async_protocol::AsyncProtocol;
+use crate::cli::party::instance::ProtocolMessage;
 use crate::cli::party::sim::benchmark::Benchmark;
 pub use crate::cli::party::sim::benchmark::{BenchmarkResults, Measurements};
-use crate::cli::party::instance::ProtocolMessage;
-use crate::cli::party::async_protocol::AsyncProtocol;
+use crate::cli::party::traits::state_machine::*;
 use crate::cli::party::{async_protocol, watcher::StderrWatcher};
+use futures::future::ready;
+use futures::stream::{FusedStream, StreamExt};
 
 use super::Musig2Instance;
+use std::sync::{Arc, Mutex};
 use tokio::sync::broadcast;
 
 pub type Incoming<M> =
-Pin<Box<dyn FusedStream<Item=Result<Msg<M>, broadcast::error::RecvError>> + Send>>;
+    Pin<Box<dyn FusedStream<Item = Result<Msg<M>, broadcast::error::RecvError>> + Send>>;
 
 pub struct Outgoing<M> {
     pub sender: broadcast::Sender<Msg<M>>,
@@ -66,7 +67,18 @@ pub fn incoming<M: Clone + Send + Unpin + 'static>(
 
 pub struct Musig2Party<P> {
     pub tx: broadcast::Sender<Msg<ProtocolMessage>>,
-    pub instance: Option<AsyncProtocol<Musig2Instance, Incoming<ProtocolMessage>, Outgoing<ProtocolMessage>, StderrWatcher>>,
+    pub instance: Arc<
+        Mutex<
+            Option<
+                AsyncProtocol<
+                    Musig2Instance,
+                    Incoming<ProtocolMessage>,
+                    Outgoing<ProtocolMessage>,
+                    StderrWatcher,
+                >,
+            >,
+        >,
+    >,
     /// Parties running a protocol
     ///
     /// Field is exposed mainly to allow examining parties state after simulation is completed.
@@ -92,7 +104,7 @@ impl<P> Musig2Party<P> {
     pub fn new(send: Sender) -> Self {
         Self {
             tx: send,
-            instance: None,
+            instance: Arc::new(Mutex::new(None)),
             parties: vec![],
             peer_ids: vec![],
             benchmark: Benchmark::disabled(),
@@ -105,7 +117,7 @@ impl<P> Musig2Party<P> {
             sender: self.tx.clone(),
         };
         let instance = AsyncProtocol::new(instance, incoming, outgoing).set_watcher(StderrWatcher);
-        self.instance = Some(instance);
+        self.instance = Arc::new(Mutex::new(Some(instance)));
     }
 
     /// Adds protocol participant

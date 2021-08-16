@@ -19,8 +19,8 @@ pub use transport::build_transport;
 use super::protocals::signature;
 use crate::TOPIC;
 
-use crate::cli::party::{traits::state_machine::Msg, instance::ProtocolMessage};
-use crate::cli::party::musig2::{Sender, Receiver};
+use crate::cli::party::musig2::{Receiver, Sender};
+use crate::cli::party::{instance::ProtocolMessage, traits::state_machine::Msg};
 
 use tokio::sync::broadcast;
 

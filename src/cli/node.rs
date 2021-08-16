@@ -2,6 +2,11 @@ use super::{
     p2p::*,
     party::{Musig2Instance, Musig2Party},
 };
+use crate::cli::party::async_protocol::AsyncProtocol;
+use crate::cli::party::musig2::{incoming, Outgoing};
+use crate::cli::party::traits::state_machine::StateMachine;
+use crate::cli::party::{async_protocol, watcher::StderrWatcher};
+use crate::cli::party::{instance::ProtocolMessage, traits::state_machine::Msg};
 use crate::*;
 use libp2p::{
     core::ConnectedPoint,
@@ -11,15 +16,11 @@ use libp2p::{
     Multiaddr, PeerId,
 };
 use log::{debug, error, info};
+use std::cell::RefCell;
 use std::error::Error;
+use std::sync::{Arc, Mutex};
 use tokio::io::AsyncBufReadExt;
 use tokio::sync::broadcast;
-use crate::cli::party::{traits::state_machine::Msg, instance::ProtocolMessage};
-use crate::cli::party::traits::state_machine::StateMachine;
-use crate::cli::party::musig2::{Outgoing, incoming};
-use crate::cli::party::async_protocol::AsyncProtocol;
-use crate::cli::party::{async_protocol, watcher::StderrWatcher};
-use std::sync::{Mutex, Arc};
 
 pub struct Node {
     swarm: TSwarm,
@@ -69,14 +70,14 @@ impl Node {
         let instance = Musig2Instance::with_fixed_seed(party_i, party_n, msg, key_pair);
         let rx = self.swarm.behaviour_mut().options().tx.subscribe();
         self.party.add_instance(instance, rx);
-        let mut party = self.party.instance.as_mut().expect("instance must exist");
-        // party.run().await;
+        let mut party = Arc::clone(&self.party.instance);
 
         // todo!: Asynchronous thread runs up the state machine
-        // let h = tokio::spawn(async move {
-        //     party.run().await
-        // });
-        // h.await;
+        let h = tokio::spawn(async move {
+            if let Some(s) = party.lock().unwrap().as_mut() {
+                s.run();
+            };
+        });
     }
 
     pub fn add_party(&mut self, endpoint: ConnectedPoint, peer_id: PeerId) {
