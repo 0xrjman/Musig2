@@ -47,6 +47,15 @@ impl Musig2Instance {
         }
     }
 
+    // pub fn update_message(&mut self, message: Vec<u8>) -> Self {
+    //     self.round = R::Prepare(Prepare {
+    //         message,
+    //         my_ind: self.party_i,
+    //         key_pair: self.round.
+    //     });
+    //     self  
+    // }
+
     fn gmap_queue<'a, T, F>(&'a mut self, mut f: F) -> impl Push<Msg<T>> + 'a
     where
         F: FnMut(T) -> M + 'a,

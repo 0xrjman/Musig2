@@ -2,6 +2,7 @@
 
 use futures::sink::Sink;
 use libp2p::{Multiaddr, PeerId};
+use std::collections::HashMap;
 use std::fmt::Debug;
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -15,9 +16,9 @@ use crate::cli::party::{async_protocol, watcher::StderrWatcher};
 use futures::future::ready;
 use futures::stream::{FusedStream, StreamExt};
 
-use super::Musig2Instance;
 use std::sync::{Arc, Mutex};
 use tokio::sync::broadcast;
+use super::{MSESSION_ID, MSession, MSessionId, Musig2Instance};
 
 pub type Incoming<M> =
     Pin<Box<dyn FusedStream<Item = Result<Msg<M>, broadcast::error::RecvError>> + Send>>;
@@ -65,23 +66,43 @@ pub fn incoming<M: Clone + Send + Unpin + 'static>(
     Box::pin(stream)
 }
 
+// pub struct Musig2Party<P> {
+//     pub tx: broadcast::Sender<Msg<ProtocolMessage>>,
+//     pub instance: Arc<
+//         Mutex<
+//             Option<
+//                 AsyncProtocol<
+//                     Musig2Instance,
+//                     Incoming<ProtocolMessage>,
+//                     Outgoing<ProtocolMessage>,
+//                     StderrWatcher,
+//                 >,
+//             >,
+//         >,
+//     >,
+//     // pub instances: HashMap<
+//     //     MSessionId,
+//     //     Option<AsyncProtocol<Musig2Instance, Incoming<ProtocolMessage>, Outgoing<ProtocolMessage>, StderrWatcher>>,
+//     /// Parties running a protocol
+//     ///
+//     /// Field is exposed mainly to allow examining parties state after simulation is completed.
+//     pub parties: Vec<P>,
+//     pub peer_ids: Vec<PeerId>,
+//     benchmark: Benchmark,
+// }
+
+pub type Sender = broadcast::Sender<Msg<ProtocolMessage>>;
+pub type Receiver = broadcast::Receiver<Msg<ProtocolMessage>>;
+
 pub struct Musig2Party<P> {
     pub tx: broadcast::Sender<Msg<ProtocolMessage>>,
-    pub instance: Arc<
-        Mutex<
-            Option<
-                AsyncProtocol<
-                    Musig2Instance,
-                    Incoming<ProtocolMessage>,
-                    Outgoing<ProtocolMessage>,
-                    StderrWatcher,
-                >,
-            >,
-        >,
+    pub instances: HashMap<
+        MSessionId,
+        MSession,
+        // Option<AsyncProtocol<Musig2Instance, Incoming<ProtocolMessage>, Outgoing<ProtocolMessage>, StderrWatcher>>
     >,
-    /// Parties running a protocol
-    ///
-    /// Field is exposed mainly to allow examining parties state after simulation is completed.
+    // Parties running a protocol
+    // Field is exposed mainly to allow examining parties state after simulation is completed.
     pub parties: Vec<P>,
     pub peer_ids: Vec<PeerId>,
     benchmark: Benchmark,
@@ -94,45 +115,61 @@ impl Musig2Party<Multiaddr> {
             .remove(self.parties.iter().position(|x| *x == party).unwrap());
         self
     }
+
+    pub fn add_instance(&mut self, instance: Musig2Instance, receive: Receiver) {
+        // Receive messages from behaviour
+        let incoming = incoming(receive, instance.party_ind());
+        // Send message to behaviour
+        let outgoing = Outgoing { sender: self.tx.clone() };
+        // Create a async instance which can run as musig2
+        let async_instance = AsyncProtocol::new(instance, incoming, outgoing).set_watcher(StderrWatcher);
+        
+        // Create a session that can execute musig2
+        let msession = MSession::with_fixed_instance(
+            MSESSION_ID.to_string(),
+            async_instance,
+            self.parties.clone(),
+            self.peer_ids.clone()
+        );
+        // self.instance = Arc::new(Mutex::new(Some(instance)));
+        self.instances.insert(MSESSION_ID.to_string(), msession);
+
+        self.asset_dev();
+    }
 }
 
-pub type Sender = broadcast::Sender<Msg<ProtocolMessage>>;
-pub type Receiver = broadcast::Receiver<Msg<ProtocolMessage>>;
-
 impl<P> Musig2Party<P> {
-    /// Creates new simulation
+    /// Creates new Musig2Party
     pub fn new(send: Sender) -> Self {
         Self {
             tx: send,
-            instance: Arc::new(Mutex::new(None)),
+            // instance: Arc::new(Mutex::new(None)),
+            instances: HashMap::new(),
             parties: vec![],
             peer_ids: vec![],
             benchmark: Benchmark::disabled(),
         }
     }
 
-    pub fn add_instance(&mut self, instance: Musig2Instance, receive: Receiver) {
-        let incoming = incoming(receive, instance.party_ind());
-        let outgoing = Outgoing {
-            sender: self.tx.clone(),
-        };
-        let instance = AsyncProtocol::new(instance, incoming, outgoing).set_watcher(StderrWatcher);
-        self.instance = Arc::new(Mutex::new(Some(instance)));
+    fn asset_dev(&self) {
+        if self.instances.contains_key("test") {
+            println!("Currently in a [test] environment, numbers of instances is {:?}", self.instances.len());
+        }
     }
 
-    /// Adds protocol participant
+    /// Add protocol participant
     pub fn add_party(&mut self, party: P) -> &mut Self {
         self.parties.push(party);
         self
     }
 
-    /// Adds peer id
+    /// Add peer id
     pub fn add_peer_id(&mut self, peer_id: PeerId) -> &mut Self {
         self.peer_ids.push(peer_id);
         self
     }
 
-    /// Enables benchmarks so they can be [retrieved](Simulation::benchmark_results) after simulation
+    /// Enable benchmarks so they can be [retrieved](Simulation::benchmark_results) after simulation
     /// is completed
     pub fn enable_benchmarks(&mut self, enable: bool) -> &mut Self {
         if enable {
@@ -143,7 +180,7 @@ impl<P> Musig2Party<P> {
         self
     }
 
-    /// Returns benchmark results if they were [enabled](Simulation::enable_benchmarks)
+    /// Return benchmark results if they were [enabled](Simulation::enable_benchmarks)
     ///
     /// Benchmarks show how much time (in average) [proceed](StateMachine::proceed) method takes for
     /// proceeding particular rounds. Benchmarks might help to find out which rounds are cheap to

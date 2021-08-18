@@ -8,6 +8,7 @@ use crate::cli::party::traits::state_machine::StateMachine;
 use crate::cli::party::{async_protocol, watcher::StderrWatcher};
 use crate::cli::party::{instance::ProtocolMessage, traits::state_machine::Msg};
 use crate::*;
+use crate::cli::party::{MSESSION_ID, MSession};
 use libp2p::{
     core::ConnectedPoint,
     floodsub::Topic,
@@ -53,7 +54,8 @@ impl Node {
         }
     }
 
-    pub async fn add_instance(&mut self, msg: Vec<u8>) {
+    pub async fn gen_instance(&mut self, msg: Vec<u8>) {
+        info!("try to generate instance, msg is {:?}", msg);
         let key_pair = self.swarm.behaviour_mut().options().keyring.clone();
         let cur_peer_id = self.swarm.behaviour_mut().options().peer_id;
         let mut peer_ids = self.party.peer_ids.clone();
@@ -67,26 +69,61 @@ impl Node {
             }
         }
         assert!(party_i > 0, "party_i must be positive!");
+
         let instance = Musig2Instance::with_fixed_seed(party_i, party_n, msg, key_pair);
         let rx = self.swarm.behaviour_mut().options().tx.subscribe();
-        self.party.add_instance(instance, rx);
-        let mut party = Arc::clone(&self.party.instance);
+        // self.party.add_instance(instance, rx.clone());
 
-        // todo!: Asynchronous thread runs up the state machine
+
+
+        // let party = Arc::clone(&self.party.instance);
+
+        // // todo!: Asynchronous thread runs up the state machine
+        // let h = tokio::spawn(async move {
+        //     if let Some(s) = party.lock().unwrap().as_mut() {
+        //         s.run();
+        //     };
+        // });
+        
+        let parties = self.party.parties.clone();
+        let peer_ids = self.party.peer_ids.clone();
+        let tx = self.party.tx.clone();
+
+        // let mut msession = 
+        //     self.party.instances
+        //         .get(MSESSION_ID).unwrap();
         let h = tokio::spawn(async move {
-            if let Some(s) = party.lock().unwrap().as_mut() {
-                s.run();
-            };
+            // Receive messages from behaviour
+            let incoming = incoming(rx, instance.party_ind());
+            // Send message to behaviour
+            let outgoing = Outgoing { sender: tx };
+            // Create a async instance which can run as musig2
+            let async_instance = AsyncProtocol::new(instance, incoming, outgoing).set_watcher(StderrWatcher);
+            
+            // Create a session that can execute musig2
+            let mut msession = MSession::with_fixed_instance(
+                MSESSION_ID.to_string(),
+                async_instance,
+                parties,
+                peer_ids,
+            );
+
+            info!("================ msession.run start ==================");
+            msession.run().await;
+            info!("================ msession.run over  ==================");
         });
+        // if let Some(msession) = _instance { 
+        // }
     }
 
-    pub fn add_party(&mut self, endpoint: ConnectedPoint, peer_id: PeerId) {
-        self.party.add_party(connection_point_addr(endpoint));
+    pub fn add_party(&mut self, addr: Multiaddr, peer_id: PeerId) {
+        self.party.add_party(addr);
         self.party.add_peer_id(peer_id);
     }
 
-    pub fn remove_party(&mut self, endpoint: ConnectedPoint) {
-        self.party.remove_party(connection_point_addr(endpoint));
+    /// Solve address of [ConnectedPoint::Listener] and [ConnectedPoint::Dialer]
+    pub fn remove_party(&mut self, addr: Multiaddr) {
+        self.party.remove_party(addr);
     }
 
     pub fn list_parties(&mut self) {
@@ -95,6 +132,12 @@ impl Node {
         for p in self.party.parties.iter() {
             info!("{}", p);
         }
+    }
+
+    async fn handle_list(&mut self, cmd: &str) {
+        let order = cmd.strip_prefix("list ").unwrap();
+        info!("handle list {:?}", order);
+        self.list_parties();
     }
 
     pub async fn handle_sign(&mut self, cmd: &str) {
@@ -114,7 +157,7 @@ impl Node {
         //     MSG.lock().unwrap().insert(topic, msg.clone());
         //     swarm.behaviour_mut().solve_msg_in_generating_round_1(msg);
         // };
-        self.add_instance(msg).await;
+        self.gen_instance(msg).await;
     }
 
     pub async fn run(&mut self) -> Result<(), Box<dyn Error>> {
@@ -133,15 +176,17 @@ impl Node {
                     line = stdin.next_line() => Some(EventType::Input(line.expect("can get line").expect("can read line from stdin"))),
                     event = self.swarm.select_next_some() => {
                         match event {
-                            SwarmEvent::ConnectionEstablished { peer_id, endpoint, .. } => {
-                                self.add_party(endpoint.clone(), peer_id.clone());
-                                self.list_parties();
-                                info!("Connected in {:?}", is_dialer_connection(endpoint));
+                            SwarmEvent::ConnectionEstablished { endpoint, peer_id, .. } => {
+                                if let ConnectedPoint::Dialer { address } = endpoint {
+                                    self.add_party(address.clone(), peer_id.clone());
+                                    debug!("Connected in {:?}", address);
+                                };
                             },
                             SwarmEvent::ConnectionClosed { endpoint, .. } => {
-                                self.remove_party(endpoint.clone());
-                                self.list_parties();
-                                debug!("Connection closed in {:?}", connection_point_addr(endpoint));
+                                if let ConnectedPoint::Dialer { address } = endpoint {
+                                    self.remove_party(address.clone());
+                                    debug!("Connection closed in {:?}", address);
+                                };
                             },
                             _ => {
                                 debug!("Unhandled Swarm Event: {:?}", event)
@@ -173,6 +218,7 @@ impl Node {
                         cmd if cmd.starts_with("verify") => {
                             self.swarm.behaviour_mut().verify_sign().await
                         }
+                        cmd if cmd.starts_with("list") => self.handle_list(cmd).await,
                         _ => error!("unknown command"),
                     },
                     EventType::Send(m) => {

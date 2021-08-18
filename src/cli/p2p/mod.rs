@@ -1,14 +1,10 @@
 //! P2P handling for musig2 nodes.
-use libp2p::{
-    core::ConnectedPoint, floodsub::Topic, identity::Keypair, swarm::SwarmBuilder, Multiaddr,
-    PeerId,
-};
-
+use libp2p::{floodsub::Topic, identity::Keypair, swarm::SwarmBuilder, Multiaddr, PeerId};
 use std::{env, error::Error, path::PathBuf};
 
-// pub mod addr;
+pub mod addr;
 pub mod behaviour;
-// pub mod swarm;
+pub mod swarm;
 pub mod transport;
 
 // pub use addr::{MultiaddrWithPeerId, MultiaddrWithoutPeerId};
@@ -93,16 +89,9 @@ pub async fn create_swarm(options: SwarmOptions) -> Result<TSwarm, Box<dyn Error
     Ok(swarm)
 }
 
-pub fn connection_point_addr(cp: ConnectedPoint) -> Multiaddr {
-    match cp {
-        ConnectedPoint::Dialer { address } => address,
-        ConnectedPoint::Listener { send_back_addr, .. } => send_back_addr,
-    }
-}
-
-pub fn is_dialer_connection(cp: ConnectedPoint) -> Multiaddr {
-    match cp {
-        ConnectedPoint::Dialer { address } => address,
-        ConnectedPoint::Listener { .. } => todo!(),
-    }
-}
+// pub fn connection_point_addr(cp: ConnectedPoint) -> Multiaddr {
+//     match cp {
+//         ConnectedPoint::Dialer { address } => address,
+//         ConnectedPoint::Listener { send_back_addr, .. } => send_back_addr,
+//     }
+// }
