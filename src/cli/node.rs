@@ -8,7 +8,7 @@ use crate::cli::party::traits::state_machine::StateMachine;
 use crate::cli::party::{async_protocol, watcher::StderrWatcher};
 use crate::cli::party::{instance::ProtocolMessage, traits::state_machine::Msg};
 use crate::*;
-use crate::cli::party::{MSESSION_ID, MSession};
+use crate::cli::party::{MSESSION_ID, AsyncSession};
 use libp2p::{
     core::ConnectedPoint,
     floodsub::Topic,
@@ -16,6 +16,7 @@ use libp2p::{
     swarm::{Swarm, SwarmEvent},
     Multiaddr, PeerId,
 };
+// use crate::cli::p2p::EventType::CallPeers;
 use log::{debug, error, info};
 use std::cell::RefCell;
 use std::error::Error;
@@ -27,8 +28,11 @@ pub struct Node {
     swarm: TSwarm,
     pub party: Musig2Party<Multiaddr>,
     pub other: Other,
-    /// Responsible for sending the data of the state machine to other parties
-    pub rx: broadcast::Receiver<Msg<ProtocolMessage>>,
+    /// Responsible for sending message to party
+    // pub tx_party: broadcast::Sender<Msg<ProtocolMessage>>,
+    /// Responsible for receiving message from party
+    pub rx_party: broadcast::Receiver<Msg<ProtocolMessage>>,
+    pub rx_inter: broadcast::Receiver<CallMessage>,
 }
 
 pub struct Other {
@@ -37,25 +41,34 @@ pub struct Other {
 
 impl Node {
     pub async fn init() -> Node {
-        let (tx1, _) = broadcast::channel(50);
-        let (tx2, rx2) = broadcast::channel(50);
-
-        let options = SwarmOptions::new_test_options(tx1);
+        // Sending message from node to party
+        let (tx_party, rx_node) = broadcast::channel(50);
+        // Sending message from party to node
+        let (tx_node, rx_party) = broadcast::channel(50);
+        // Used as internal communication
+        let (tx_inter, rx_inter) = broadcast::channel(50);
+        
+        let options = SwarmOptions::new_test_options(tx_inter, tx_party);
         let mut swarm = create_swarm(options.clone()).await.unwrap();
         let topic = swarm.behaviour_mut().options().topic.clone();
 
-        let party = Musig2Party::new(tx2);
+        let party = Musig2Party::new(tx_node, rx_node);
 
         Node {
-            rx: rx2,
             swarm,
             party,
             other: Other { topic },
+            // tx_party,
+            rx_party,
+            rx_inter,
         }
     }
 
-    pub async fn gen_instance(&mut self, msg: Vec<u8>) {
-        info!("try to generate instance, msg is {:?}", msg);
+    pub async fn run_instance(&mut self, msg: Vec<u8>) {
+
+        info!("try to generate instance, msg is {:?}", msg.clone());
+        // self.loop_recv().await;
+
         let key_pair = self.swarm.behaviour_mut().options().keyring.clone();
         let cur_peer_id = self.swarm.behaviour_mut().options().peer_id;
         let mut peer_ids = self.party.peer_ids.clone();
@@ -70,11 +83,9 @@ impl Node {
         }
         assert!(party_i > 0, "party_i must be positive!");
 
-        let instance = Musig2Instance::with_fixed_seed(party_i, party_n, msg, key_pair);
-        let rx = self.swarm.behaviour_mut().options().tx.subscribe();
+        let instance = Musig2Instance::with_fixed_seed(party_i, party_n, msg.clone(), key_pair);
+        let rx_node = self.swarm.behaviour_mut().options().tx_party.subscribe();
         // self.party.add_instance(instance, rx.clone());
-
-
 
         // let party = Arc::clone(&self.party.instance);
 
@@ -84,24 +95,34 @@ impl Node {
         //         s.run();
         //     };
         // });
-        
-        let parties = self.party.parties.clone();
-        let peer_ids = self.party.peer_ids.clone();
-        let tx = self.party.tx.clone();
 
         // let mut msession = 
         //     self.party.instances
         //         .get(MSESSION_ID).unwrap();
-        let h = tokio::spawn(async move {
+
+        // if let Some(msession) = _instance { 
+        // }
+
+        let parties = self.party.parties.clone();
+        let peer_ids = self.party.peer_ids.clone();
+        let tx_node = self.party.tx_node.clone();
+
+        // Sending message from node to party
+        // let (tx_party, rx_node) = broadcast::channel(50);
+        // Sending message from party to node
+        // let (tx_node, rx_party) = broadcast::channel(50);
+
+
+        let _ = tokio::spawn(async move {
             // Receive messages from behaviour
-            let incoming = incoming(rx, instance.party_ind());
+            let incoming = incoming(rx_node, instance.party_ind());
             // Send message to behaviour
-            let outgoing = Outgoing { sender: tx };
+            let outgoing = Outgoing { sender: tx_node };
             // Create a async instance which can run as musig2
             let async_instance = AsyncProtocol::new(instance, incoming, outgoing).set_watcher(StderrWatcher);
             
             // Create a session that can execute musig2
-            let mut msession = MSession::with_fixed_instance(
+            let mut msession = AsyncSession::with_fixed_instance(
                 MSESSION_ID.to_string(),
                 async_instance,
                 parties,
@@ -112,9 +133,83 @@ impl Node {
             msession.run().await;
             info!("================ msession.run over  ==================");
         });
-        // if let Some(msession) = _instance { 
-        // }
+
+        // let mut recv = self.party.tx_node.subscribe();
+        // tokio::spawn(async move {
+        //     info!("------------------------------------------------------------------");
+        //     let recv_msg = recv.recv().await.unwrap();
+        //     info!("-------------------rev msg is {:?}", recv_msg);
+        // });
+        
+        // self.swarm.behaviour_mut().publish_msg(
+        //     msg.clone()
+        // );
     }
+
+    pub async fn loop_recv(&mut self) {
+        loop {
+            let recv_msg = self.rx_party.recv().await.unwrap();
+            self.publish_msg(recv_msg);
+        }
+    }
+
+    pub fn publish_msg(&mut self, msg: Msg<ProtocolMessage>) {
+        let topic = self.swarm.behaviour_mut().options().topic.clone();
+        let json = serde_json::to_string(&msg).expect("can jsonify response");
+
+        self.swarm.behaviour_mut().floodsub.publish(topic,json.as_bytes());
+    }
+
+    pub fn call_peers(&mut self, msg: SignInfo) {
+        let topic = self.swarm.behaviour_mut().options().topic.clone();
+        let call = CallMessage::CoopSign(msg);
+        let json = serde_json::to_string(&call).expect("can jsonify response");
+
+        self.swarm.behaviour_mut().floodsub.publish(topic,json.as_bytes());
+    }
+
+    // #[allow(dead_code)]
+    // pub async fn gen_session(&mut self, msg: Vec<u8>) -> AsyncSession {
+    //     info!("try to generate instance, msg is {:?}", msg);
+    //     let key_pair = self.swarm.behaviour_mut().options().keyring.clone();
+    //     let cur_peer_id = self.swarm.behaviour_mut().options().peer_id;
+    //     let mut peer_ids = self.party.peer_ids.clone();
+    //     peer_ids.push(cur_peer_id.clone());
+    //     peer_ids.sort();
+    //     let party_n = peer_ids.len() as u16;
+    //     let mut party_i = 0;
+    //     for (k, peer_id) in peer_ids.iter().enumerate() {
+    //         if peer_id.as_ref() == cur_peer_id.as_ref() {
+    //             party_i = (k + 1) as u16;
+    //         }
+    //     }
+    //     assert!(party_i > 0, "party_i must be positive!");
+
+    //     let instance = Musig2Instance::with_fixed_seed(party_i, party_n, msg, key_pair);
+    //     let rx = self.swarm.behaviour_mut().options().tx.subscribe();
+    //     // self.party.add_instance(instance, rx.clone());
+
+    //     let parties = self.party.parties.clone();
+    //     let peer_ids = self.party.peer_ids.clone();
+    //     let tx = self.party.tx_node.clone();
+
+    //     // Receive messages from behaviour
+    //     let incoming = incoming(rx, instance.party_ind());
+    //     // Send message to behaviour
+    //     let outgoing = Outgoing { sender: tx };
+    //     // Create a async instance which can run as musig2
+    //     let async_instance = AsyncProtocol::new(instance, incoming, outgoing).set_watcher(StderrWatcher);
+        
+    //     // Create a session that can execute musig2
+    //     let msession = AsyncSession::with_fixed_instance(
+    //         MSESSION_ID.to_string(),
+    //         async_instance,
+    //         parties,
+    //         peer_ids,
+    //     );
+
+    //     msession
+    // }
 
     pub fn add_party(&mut self, addr: Multiaddr, peer_id: PeerId) {
         self.party.add_party(addr);
@@ -144,6 +239,7 @@ impl Node {
         // let topic = swarm.behaviour_mut().options().topic.clone();
         let rest = cmd.strip_prefix("sign ").unwrap();
         let msg = Vec::from(rest.as_bytes());
+        info!("handle sign {:?}", msg);
         // let state = SIGNSTATE.lock().unwrap().get(&topic).unwrap().clone();
         // if let SignState::Round2End = state {
         //     SIGNSTATE
@@ -157,7 +253,10 @@ impl Node {
         //     MSG.lock().unwrap().insert(topic, msg.clone());
         //     swarm.behaviour_mut().solve_msg_in_generating_round_1(msg);
         // };
-        self.gen_instance(msg).await;
+        self.run_instance(msg.clone()).await;
+
+        // let mut session = self.gen_session(msg).await;
+        // session.run().await;
     }
 
     pub async fn run(&mut self) -> Result<(), Box<dyn Error>> {
@@ -196,25 +295,44 @@ impl Node {
                     },
                     // response = response_rcv.recv() => Some(EventType::Response(response.expect("response exists"))),
                     send = state_into_event(SIGNSTATE.lock().unwrap().get(&self.other.topic.clone()).unwrap().clone()) => send,
-                    recv = self.rx.recv() => Some(EventType::Response1(recv.expect("recv exists"))),
+                    recv = self.rx_party.recv() => Some(EventType::Response1(recv.expect("recv exists"))),
+                    recv_inter = self.rx_inter.recv() => Some(EventType::CallPeers(recv_inter.expect("recv_inter exists"))),
+                    // recv_msg = self.rx_party.recv().await.unwrap() => {
+                    //     self.publish_msg(recv_msg);
+                    //     None
+                    // },
                 }
             };
 
             if let Some(event) = evt {
                 match event {
                     EventType::Response1(m) => {
-                        // todo! Receive data from the outgoing tx of the state machine and publish through swam
-                        println!("Response1:{:?}", m);
-                    }
+                        // println!("Response1:{:?}", m.clone());
+                        self.publish_msg(m);
+                        info!("publish msg succeed");
+                    },
                     EventType::Response(resp) => {
                         let json = serde_json::to_string(&resp).expect("can jsonify response");
                         self.swarm
                             .behaviour_mut()
                             .floodsub()
                             .publish(TOPIC.to_owned(), json.as_bytes());
-                    }
+                    },
+                    EventType::CallPeers(call) => {
+                        match call {
+                            CallMessage::CoopSign(mut sign_info) => {
+                                let cmd = sign_info.get_cmd("sign");
+                                self.handle_sign(&cmd).await;
+                            },
+                        }
+                    },
                     EventType::Input(line) => match line.as_str() {
-                        cmd if cmd.starts_with("sign") => self.handle_sign(cmd).await,
+                        cmd if cmd.starts_with("sign") => {
+                            let msg = cmd.strip_prefix("sign ").unwrap();
+                            info!("sign msg: {:?}", msg);
+                            self.call_peers(SignInfo::new(msg.to_string()));
+                            self.handle_sign(cmd).await;
+                        },
                         cmd if cmd.starts_with("verify") => {
                             self.swarm.behaviour_mut().verify_sign().await
                         }

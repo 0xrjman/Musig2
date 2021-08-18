@@ -11,41 +11,15 @@ use libp2p::{
     NetworkBehaviour, PeerId,
 };
 use log::{error, info};
-use serde::{Deserialize, Serialize};
 use tracing::trace;
 
-use super::SwarmOptions;
-use crate::cli::protocals::signature::*;
+use super::{CallMessage, Message, SwarmOptions};
+use crate::cli::{p2p::SignState, protocals::signature::*};
 use crate::{
     C, KEYAGG, KEY_PAIR, MSG, PENDINGSTATE, PKS, R, ROUND1, ROUND2, S, SIGNSTATE, STATE0, STATE1,
     TOPIC,
 };
-
 use crate::cli::party::{instance::ProtocolMessage, traits::state_machine::Msg};
-
-#[derive(Clone, Debug)]
-pub enum SignState {
-    Prepare(Message),
-    Round1Send,
-    Round1End(Message),
-    Round2Send,
-    Round2End,
-}
-
-#[allow(dead_code)]
-#[derive(Debug)]
-pub enum EventType {
-    Response(Message),
-    Input(String),
-    Send(Message),
-    Response1(Msg<ProtocolMessage>),
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub enum Message {
-    Round1(Round1),
-    Round2(Round2),
-}
 
 #[derive(NetworkBehaviour)]
 pub struct SignatureBehaviour {
@@ -94,6 +68,29 @@ impl SignatureBehaviour {
     pub fn options(&mut self) -> &mut SwarmOptions {
         &mut self.options
     }
+
+    // pub fn publish_msg(&mut self, msg: Vec<u8>) {
+    //     let topic = self.options.topic.clone();
+    //     let sender = self.options.peer_id.clone().to_bytes();
+    //     let (round_1_msg, _) = sign(self.options.keyring.clone());
+        
+    //     let round1 = Round1 {
+    //         topic: topic.clone().into(),
+    //         sender,
+    //         num: 3,
+    //         ephemeral_keys: round_1_msg,
+    //         msg,
+    //         pubkey: self.options.keyring.public_key,
+    //     };
+    //     let async_msg = AsyncMessage::Round1(round1);
+
+    //     self.floodsub.publish(
+    //         topic,
+    //         serde_json::to_string(&async_msg)
+    //             .unwrap()
+    //             .as_bytes(),
+    //     );
+    // }
 
     pub fn generate_round1(&self, msg: Vec<u8>) -> Message {
         let (party_1_msg_round_1, party_1_state) = sign(KEY_PAIR.clone());
@@ -209,9 +206,27 @@ impl NetworkBehaviourEventProcess<PingEvent> for SignatureBehaviour {
 impl NetworkBehaviourEventProcess<FloodsubEvent> for SignatureBehaviour {
     fn inject_event(&mut self, event: FloodsubEvent) {
         if let FloodsubEvent::Message(msg) = event {
-            /* todo!The event type here may need to be redefined, and then it can receive
-            ProtocolMessage messages from other parties and send them to rx of the finite state machine
-            through swarm.behaviour_mut().options().tx */
+            // todo!The event type here may need to be redefined, and then it can receive
+            // ProtocolMessage messages from other parties and send them to rx of the finite state machine
+            // through swarm.behaviour_mut().options().tx
+            if let Ok(resp) = serde_json::from_slice::<Msg<ProtocolMessage>>(&msg.data) {
+                info!("received message form peers");
+                self.options().tx_party.send(resp).unwrap();
+            }
+
+            if let Ok(call) = serde_json::from_slice::<CallMessage>(&msg.data) {
+                info!("Receive a call from peers, {:?}", call);
+                match call {
+                    CallMessage::CoopSign(sign_info) => {
+                        // let sign_cmd = "sign";
+                        // let cmd = sign_info.get_cmd(sign_cmd);
+                        let call = CallMessage::CoopSign(sign_info);
+                        // self.handle_sign(&cmd).await;
+                        self.options.tx_node.send(call).unwrap();
+                    },
+                }
+            }
+
             if let Ok(resp) = serde_json::from_slice::<Message>(&msg.data) {
                 match resp {
                     Message::Round1(r1) => {

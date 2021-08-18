@@ -4,11 +4,13 @@ use std::{env, error::Error, path::PathBuf};
 
 pub mod addr;
 pub mod behaviour;
+pub mod msg;
 pub mod swarm;
 pub mod transport;
 
 // pub use addr::{MultiaddrWithPeerId, MultiaddrWithoutPeerId};
 pub use behaviour::*;
+pub use msg::*;
 pub use transport::build_transport;
 // pub use swarm::*;
 
@@ -45,12 +47,13 @@ pub struct SwarmOptions {
     /// Enables mdns for peer discovery and announcement when true.
     pub mdns: bool,
     /// Responsible for transferring the data flow from other parties to the state machine
-    pub tx: broadcast::Sender<Msg<ProtocolMessage>>,
+    pub tx_node: broadcast::Sender<CallMessage>,
+    pub tx_party: broadcast::Sender<Msg<ProtocolMessage>>,
 }
 
 impl SwarmOptions {
     /// Creates for any testing purposes.
-    pub fn new_test_options(send: Sender) -> Self {
+    pub fn new_test_options(tx_node: broadcast::Sender<CallMessage>, tx_party: Sender) -> Self {
         let keypair = Keypair::generate_secp256k1();
         let keyring = Keyring::create();
         let peer_id = PeerId::from(keypair.public());
@@ -59,7 +62,8 @@ impl SwarmOptions {
         log::info!("Local peer id: {:?}", peer_id);
 
         Self {
-            tx: send,
+            tx_node,
+            tx_party,
             // rx: receive,
             store_path: env::temp_dir(),
             keypair,

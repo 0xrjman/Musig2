@@ -194,6 +194,8 @@ pub enum AsyncSimulationError<SM: StateMachine> {
 
 #[cfg(test)]
 mod tests {
+    use tokio::sync::broadcast;
+
     use crate::cli::party::{instance::Musig2Instance, sim::async_simulation::AsyncSimulation};
     use crate::cli::protocals::KeyPair;
 
@@ -210,5 +212,22 @@ mod tests {
             .run()
             .await;
         println!("Simulation results: {:?}", results);
+
+        let (tx, mut rx) = broadcast::channel(2);
+        let tx_clone = tx.clone();
+        tx_clone.send(10).unwrap();
+        tx_clone.send(20).unwrap();
+        tx_clone.send(30).unwrap();
+    
+        // The receiver lagged behind
+        assert!(rx.recv().await.is_err());
+    
+        // At this point, we can abort or continue with lost messages
+    
+        let rx_20 = rx.recv().await.unwrap();
+        println!("rx_20 is {:?}", rx_20);
+
+        assert_eq!(30, rx.recv().await.unwrap());
+        
     }
 }

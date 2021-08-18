@@ -32,7 +32,7 @@ lazy_static! {
 
 mod cli;
 use cli::node::Node;
-use cli::p2p::behaviour::*;
+use cli::p2p::{SignState, behaviour::*};
 use cli::protocals::signature::*;
 
 #[tokio::main]

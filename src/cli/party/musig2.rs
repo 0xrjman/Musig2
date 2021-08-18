@@ -18,7 +18,7 @@ use futures::stream::{FusedStream, StreamExt};
 
 use std::sync::{Arc, Mutex};
 use tokio::sync::broadcast;
-use super::{MSESSION_ID, MSession, MSessionId, Musig2Instance};
+use super::{MSESSION_ID, AsyncSession, MSessionId, Musig2Instance};
 
 pub type Incoming<M> =
     Pin<Box<dyn FusedStream<Item = Result<Msg<M>, broadcast::error::RecvError>> + Send>>;
@@ -95,10 +95,11 @@ pub type Sender = broadcast::Sender<Msg<ProtocolMessage>>;
 pub type Receiver = broadcast::Receiver<Msg<ProtocolMessage>>;
 
 pub struct Musig2Party<P> {
-    pub tx: broadcast::Sender<Msg<ProtocolMessage>>,
+    pub tx_node: broadcast::Sender<Msg<ProtocolMessage>>,
+    pub rx_node: broadcast::Receiver<Msg<ProtocolMessage>>,
     pub instances: HashMap<
         MSessionId,
-        MSession,
+        AsyncSession,
         // Option<AsyncProtocol<Musig2Instance, Incoming<ProtocolMessage>, Outgoing<ProtocolMessage>, StderrWatcher>>
     >,
     // Parties running a protocol
@@ -120,12 +121,12 @@ impl Musig2Party<Multiaddr> {
         // Receive messages from behaviour
         let incoming = incoming(receive, instance.party_ind());
         // Send message to behaviour
-        let outgoing = Outgoing { sender: self.tx.clone() };
+        let outgoing = Outgoing { sender: self.tx_node.clone() };
         // Create a async instance which can run as musig2
         let async_instance = AsyncProtocol::new(instance, incoming, outgoing).set_watcher(StderrWatcher);
         
         // Create a session that can execute musig2
-        let msession = MSession::with_fixed_instance(
+        let msession = AsyncSession::with_fixed_instance(
             MSESSION_ID.to_string(),
             async_instance,
             self.parties.clone(),
@@ -140,9 +141,10 @@ impl Musig2Party<Multiaddr> {
 
 impl<P> Musig2Party<P> {
     /// Creates new Musig2Party
-    pub fn new(send: Sender) -> Self {
+    pub fn new(send: Sender, receive: Receiver) -> Self {
         Self {
-            tx: send,
+            tx_node: send,
+            rx_node: receive,
             // instance: Arc::new(Mutex::new(None)),
             instances: HashMap::new(),
             parties: vec![],

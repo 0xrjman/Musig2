@@ -7,6 +7,7 @@ use futures::future::{Either, FutureExt};
 use futures::sink::Sink;
 use futures::stream::{self, FusedStream, Stream, StreamExt};
 use futures::SinkExt;
+use log::info;
 use tokio::time::{self, timeout_at};
 
 use super::watcher::{BlindWatcher, ProtocolWatcher, When};
@@ -108,10 +109,13 @@ where
         if self.current_round.is_some() {
             return Err(Error::Exhausted);
         }
-
+        info!("refresh_timer");
         self.refresh_timer()?;
+        info!("proceed_if_needed");
         self.proceed_if_needed().await?;
+        info!("send_outgoing");
         self.send_outgoing().await?;
+        info!("refresh_timer");
         self.refresh_timer()?;
 
         if let Some(result) = self.finish_if_possible() {
@@ -119,12 +123,19 @@ where
         }
 
         loop {
+            info!("----loop----");
+            info!("handle_incoming");
             self.handle_incoming().await?;
+            info!("send_outgoing");
             self.send_outgoing().await?;
+            info!("refresh_timer");
             self.refresh_timer()?;
 
+            info!("proceed_if_needed");
             self.proceed_if_needed().await?;
+            info!("send_outgoing");
             self.send_outgoing().await?;
+            info!("refresh_timer");
             self.refresh_timer()?;
 
             if let Some(result) = self.finish_if_possible() {
@@ -136,6 +147,7 @@ where
     async fn handle_incoming(&mut self) -> Result<(), Error<SM::Err, IErr, O::Error>> {
         let state = self.state.as_mut().ok_or(InternalError::MissingState)?;
         // todo! Ensure that the state machine here can correctly receive data from the behavior event
+        info!("async handle incoming rx_node");
         match Self::enforce_timeout(self.deadline, self.incoming.next()).await {
             Ok(Some(Ok(msg))) => match state.handle_incoming(msg) {
                 Ok(()) => (),
@@ -174,10 +186,10 @@ where
 
     async fn send_outgoing(&mut self) -> Result<(), Error<SM::Err, IErr, O::Error>> {
         let state = self.state.as_mut().ok_or(InternalError::MissingState)?;
-
+        info!("async send outgoing tx_node");
         if !state.message_queue().is_empty() {
             let mut msgs = stream::iter(state.message_queue().drain(..).map(Ok));
-            // todo! Ensure that the data sent here by the state machine can be correctly received in node.run
+
             self.outgoing
                 .send_all(&mut msgs)
                 .await

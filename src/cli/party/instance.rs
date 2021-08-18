@@ -289,6 +289,7 @@ pub struct ProtocolMessage(M);
 enum M {
     Round1(rounds::MessageRound1),
     Round2(rounds::MessageRound2),
+    // General(),
 }
 
 type Result<T> = std::result::Result<T, Error>;
