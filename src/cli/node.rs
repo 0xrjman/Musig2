@@ -66,6 +66,8 @@ impl Node {
                 party_i = (k + 1) as u16;
             }
         }
+        info!("peer_ids: {:?}", peer_ids);
+        info!("party_i: {:?}", party_i);
         assert!(party_i > 0, "party_i must be positive!");
 
         let instance = Musig2Instance::with_fixed_seed(party_i, party_n, msg, key_pair);
@@ -125,9 +127,9 @@ impl Node {
         self.party.add_peer_id(peer_id);
     }
 
-    /// Solve address of [ConnectedPoint::Listener] and [ConnectedPoint::Dialer]
-    pub fn remove_party(&mut self, addr: Multiaddr) {
+    pub fn remove_party(&mut self, addr: Multiaddr, peer_id: PeerId) {
         self.party.remove_party(addr);
+        self.party.remove_peer_id(peer_id);
     }
 
     pub fn list_parties(&mut self) {
@@ -169,9 +171,9 @@ impl Node {
                                     debug!("Connected in {:?}", address);
                                 };
                             },
-                            SwarmEvent::ConnectionClosed { endpoint, .. } => {
+                            SwarmEvent::ConnectionClosed { endpoint, peer_id, .. } => {
                                 if let ConnectedPoint::Dialer { address } = endpoint {
-                                    self.remove_party(address.clone());
+                                    self.remove_party(address.clone(), peer_id);
                                     debug!("Connection closed in {:?}", address);
                                 };
                             },
@@ -191,10 +193,10 @@ impl Node {
                     EventType::AsyncResponse(m) => {
                         self.publish_msg(m);
                         info!("publish msg succeed");
-                    }
+                    },
                     EventType::Response(_resp) => {
                         debug!("EventType::Response, has been deprecated")
-                    }
+                    },
                     EventType::CallPeers(call) => match call {
                         CallMessage::CoopSign(mut sign_info) => {
                             let cmd = sign_info.get_cmd("sign");

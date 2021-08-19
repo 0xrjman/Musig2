@@ -153,6 +153,13 @@ impl<P> Musig2Party<P> {
         self
     }
 
+    /// Remove peer id
+    pub fn remove_peer_id(&mut self, peer_id: PeerId) -> &mut Self {
+        self.peer_ids
+            .remove(self.peer_ids.iter().position(|x| *x == peer_id).unwrap());
+        self
+    }
+
     #[allow(dead_code)]
     /// Enable benchmarks so they can be [retrieved](Simulation::benchmark_results) after simulation
     /// is completed

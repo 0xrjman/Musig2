@@ -1,3 +1,4 @@
+use log::info;
 use serde::{Deserialize, Serialize};
 use std::{fmt, mem::replace, time::Duration};
 
@@ -59,6 +60,7 @@ impl Musig2Instance {
         let next_state: R;
         let try_again: bool = match replace(&mut self.round, R::Gone) {
             R::Prepare(p) if !p.is_expensive() || may_block => {
+                info!("R::Prepare {:?}", p);
                 next_state = p
                     .proceed(self.gmap_queue(M::Round1))
                     .map(R::Round1)
@@ -66,10 +68,12 @@ impl Musig2Instance {
                 true
             }
             s @ R::Prepare(_) => {
+                info!("R::Prepare next");
                 next_state = s;
                 false
             }
             R::Round1(round) if !store1_wants_more && (!round.is_expensive() || may_block) => {
+                info!("R::Round1 {:?}", round);
                 let store = self.msgs1.take().expect("store gone before round complete");
                 let msgs = store.finish().map_err(Error::HandleMsg)?;
                 next_state = round
@@ -79,10 +83,12 @@ impl Musig2Instance {
                 true
             }
             s @ R::Round1(_) => {
+                info!("R::Round1 next");
                 next_state = s;
                 false
             }
             R::Round2(round) if !store2_wants_more && (!round.is_expensive() || may_block) => {
+                info!("R::Round2 {:?}", round);
                 let store = self.msgs2.take().expect("store gone before round complete");
                 let msgs = store.finish().map_err(Error::HandleMsg)?;
                 next_state = round
@@ -92,10 +98,12 @@ impl Musig2Instance {
                 false
             }
             s @ R::Round2(_) => {
+                info!("R::Round2 next");
                 next_state = s;
                 false
             }
             s @ R::Finished(_) | s @ R::Gone => {
+                info!("R::Finished");
                 next_state = s;
                 false
             }
@@ -117,6 +125,7 @@ impl StateMachine for Musig2Instance {
 
     fn handle_incoming(&mut self, msg: Msg<Self::MessageBody>) -> Result<()> {
         let current_round = self.current_round();
+        info!("msg sender is {:?}", msg.sender);
         match msg.body {
             ProtocolMessage(M::Round1(m)) => {
                 let store = self.msgs1.as_mut().ok_or(Error::OutOfOrderMsg {
@@ -297,7 +306,13 @@ pub enum Error {
 
 impl IsCritical for Error {
     fn is_critical(&self) -> bool {
+        // todo! Implement this error handling
         // Protocol is not resistant to occurring any of errors :(
-        true
+        match self {
+            Error::ProceedRound(_) => true,
+            Error::HandleMsg { .. } => false,
+            Error::OutOfOrderMsg { .. } => true,
+            Error::DoublePickResult => true,
+        }
     }
 }

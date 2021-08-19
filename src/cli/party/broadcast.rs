@@ -1,3 +1,5 @@
+use log::info;
+
 use super::{
     store_err::StoreErr,
     traits::{
@@ -78,7 +80,6 @@ impl<M> MessageStore for BroadcastMsgsStore<M> {
     type M = M;
     type Err = StoreErr;
     type Output = BroadcastMsgs<M>;
-
     fn push_msg(&mut self, msg: Msg<Self::M>) -> Result<(), Self::Err> {
         if msg.sender == 0 {
             return Err(StoreErr::UnknownSender { sender: msg.sender });
