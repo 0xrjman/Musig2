@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::cli::{
-    party::{instance::ProtocolMessage, traits::state_machine::Msg},
+    party::{musig2_instance::ProtocolMessage, traits::state_machine::Msg},
     protocals::signature::*,
 };
 

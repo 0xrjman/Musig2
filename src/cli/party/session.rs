@@ -1,6 +1,6 @@
 use super::{Musig2Instance, Outgoing};
 use crate::cli::party::{
-    async_protocol::AsyncProtocol, instance::ProtocolMessage, traits::state_machine::*,
+    async_protocol::AsyncProtocol, musig2_instance::ProtocolMessage, traits::state_machine::*,
     watcher::StderrWatcher,
 };
 use futures::stream::FusedStream;
@@ -18,6 +18,8 @@ pub type Runtime = AsyncProtocol<
 >;
 pub const MSESSION_ID: &str = "test";
 
+/// Each Session that runs asynchronously will complete a Musig2 with parties
+/// to generate an aggregate signature for the incoming message m    
 pub struct AsyncSession {
     pub session_id: String,
     pub runtime: Runtime,

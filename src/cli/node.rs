@@ -4,14 +4,15 @@ use super::{
 };
 use crate::cli::party::{
     async_protocol::AsyncProtocol,
-    instance::ProtocolMessage,
-    musig2::{incoming, Outgoing},
+    musig2_instance::ProtocolMessage,
+    musig2_party::{incoming, Outgoing},
     traits::state_machine::{Msg, StateMachine},
     watcher::StderrWatcher,
     AsyncSession, MSESSION_ID,
 };
 use libp2p::{
     core::ConnectedPoint,
+    floodsub::Topic,
     futures::StreamExt,
     swarm::{Swarm, SwarmEvent},
     Multiaddr, PeerId,
@@ -21,11 +22,15 @@ use std::error::Error;
 use tokio::{io::AsyncBufReadExt, sync::broadcast};
 
 pub struct Node {
+    /// Manage the connection of peers
     swarm: TSwarm,
+    /// Responsible for managing signing sessions for musig
     pub party: Musig2Party<Multiaddr>,
     /// Responsible for receiving message from party
     pub rx_party: broadcast::Receiver<Msg<ProtocolMessage>>,
     /// Responsible for receiving message delivered internally
+    ///
+    /// Example: node needs to process the `[CallMessage::CoopSign]` received by floodsub
     pub rx_inter: broadcast::Receiver<CallMessage>,
 }
 
@@ -51,14 +56,18 @@ impl Node {
         }
     }
 
-    pub async fn run_instance(&mut self, msg: Vec<u8>) {
+    pub async fn start_musig2(&mut self, msg: Vec<u8>) {
         info!("try to generate instance, msg is {:?}", msg);
-
+        // First, get the necessary parameters for running Musig2
         let key_pair = self.swarm.behaviour_mut().options().keyring.clone();
         let cur_peer_id = self.swarm.behaviour_mut().options().peer_id;
+        // Get all connected peers as signature participants
         let mut peer_ids = self.party.peer_ids.clone();
+        // The current peer is also one of the participants in musig2
         peer_ids.push(cur_peer_id);
+        // Musig2 requires that the set of signers be orderly
         peer_ids.sort();
+
         let party_n = peer_ids.len() as u16;
         let mut party_i = 0;
         for (k, peer_id) in peer_ids.iter().enumerate() {
@@ -66,43 +75,49 @@ impl Node {
                 party_i = (k + 1) as u16;
             }
         }
-        info!("peer_ids: {:?}", peer_ids);
-        info!("party_i: {:?}", party_i);
-        assert!(party_i > 0, "party_i must be positive!");
+        info!(
+            "musig2 peer_ids: {:?}\ncurrent party_i: {:?}",
+            peer_ids, party_i
+        );
 
         let instance = Musig2Instance::with_fixed_seed(party_i, party_n, msg, key_pair);
-        let rx_node = self.swarm.behaviour_mut().options().tx_party.subscribe();
         // self.party.add_instance(instance, rx.clone());
 
-        let parties = self.party.parties.clone();
-        let peer_ids = self.party.peer_ids.clone();
+        // (Node)Receive messages from node
+        let rx_node = self.swarm.behaviour_mut().options().tx_party.subscribe();
+        let incoming = incoming(rx_node, instance.party_ind());
+
+        // (Session)Send messages to node
         let tx_node = self.party.tx_node.clone();
+        let outgoing = Outgoing { sender: tx_node };
 
+        // Create a async instance which can run as musig2
+        let async_instance =
+            AsyncProtocol::new(instance, incoming, outgoing).set_watcher(StderrWatcher);
+
+        // Create a session to manage the running musig2 instance
+        let session = AsyncSession::with_fixed_instance(
+            MSESSION_ID.to_string(),
+            async_instance,
+            self.party.parties.clone(),
+            self.party.peer_ids.clone(),
+        );
+        self.run_session(session).await;
+    }
+
+    /// Run a musig2 session asynchronously
+    pub async fn run_session(&self, mut session: AsyncSession) {
         tokio::spawn(async move {
-            // Receive messages from behaviour
-            let incoming = incoming(rx_node, instance.party_ind());
-            // Send message to behaviour
-            let outgoing = Outgoing { sender: tx_node };
-            // Create a async instance which can run as musig2
-            let async_instance =
-                AsyncProtocol::new(instance, incoming, outgoing).set_watcher(StderrWatcher);
-
-            // Create a session that can execute musig2
-            let mut msession = AsyncSession::with_fixed_instance(
-                MSESSION_ID.to_string(),
-                async_instance,
-                parties,
-                peer_ids,
-            );
-
-            info!("================ session.run start ==================");
-            msession.run().await;
-            info!("================ session.run over  ==================");
+            info!("================ session.run start ==================",);
+            session.run().await;
+            info!("================ session.run over  ==================",);
         });
     }
 
-    pub fn publish_msg(&mut self, msg: Msg<ProtocolMessage>) {
-        let topic = self.swarm.behaviour_mut().options().topic.clone();
+    /// Broadcast messages from running session to other peers
+    /// Only peers that subscribe to the same topic can receive the message
+    pub fn publish_msg(&mut self, msg: Msg<ProtocolMessage>, topic: Topic) {
+        // Serialize message to data stream
         let json = serde_json::to_string(&msg).expect("can jsonify response");
 
         self.swarm
@@ -111,8 +126,13 @@ impl Node {
             .publish(topic, json.as_bytes());
     }
 
+    /// Call on other peers to complete the musig2 aggregate signature
+    ///
+    /// Currently, each peer that has established a connection with the current node will participate in the musig2
+    /// In later planning, we need to optimize for this, since each session should have its own set of musig2 participants
     pub fn call_peers(&mut self, msg: SignInfo) {
         let topic = self.swarm.behaviour_mut().options().topic.clone();
+        // Passing communication messages `[CallMessage::CoopSign]` to other peers
         let call = CallMessage::CoopSign(msg);
         let json = serde_json::to_string(&call).expect("can jsonify response");
 
@@ -140,18 +160,20 @@ impl Node {
         }
     }
 
+    /// Lists all peers that are currently remaining connected
     async fn handle_list(&mut self, cmd: &str) {
         let order = cmd.strip_prefix("list ").unwrap();
         info!("handle list {:?}", order);
         self.list_parties();
     }
 
+    /// Start a musig2 session for the incoming message m to generate an aggregate signature
     pub async fn handle_sign(&mut self, cmd: &str) {
         let rest = cmd.strip_prefix("sign ").unwrap();
         let msg = Vec::from(rest.as_bytes());
         info!("handle sign {:?}", msg);
 
-        self.run_instance(msg.clone()).await;
+        self.start_musig2(msg.clone()).await;
     }
 
     pub async fn run(&mut self) -> Result<(), Box<dyn Error>> {
@@ -191,8 +213,9 @@ impl Node {
             if let Some(event) = evt {
                 match event {
                     EventType::AsyncResponse(m) => {
-                        self.publish_msg(m);
-                        info!("publish msg succeed");
+                        let topic = self.swarm.behaviour_mut().options().topic.clone();
+                        self.publish_msg(m, topic.clone());
+                        info!("publish msg succeed, topic: {:?}", topic);
                     }
                     EventType::Response(_resp) => {
                         debug!("EventType::Response, has been deprecated")

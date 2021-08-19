@@ -15,7 +15,9 @@ pub use transport::build_transport;
 // pub use swarm::*;
 
 use super::protocals::signature;
-use crate::cli::party::{instance::ProtocolMessage, musig2::Sender, traits::state_machine::Msg};
+use crate::cli::party::{
+    musig2_instance::ProtocolMessage, musig2_party::Sender, traits::state_machine::Msg,
+};
 use tokio::sync::broadcast;
 
 /// Type alias for [`libp2p::Swarm`] running the [`behaviour::Behaviour`] with the given [`SignatureBehaviour`].

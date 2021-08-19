@@ -199,7 +199,9 @@ pub enum AsyncSimulationError<SM: StateMachine> {
 
 #[cfg(test)]
 mod tests {
-    use crate::cli::party::{instance::Musig2Instance, sim::async_simulation::AsyncSimulation};
+    use crate::cli::party::{
+        musig2_instance::Musig2Instance, sim::async_simulation::AsyncSimulation,
+    };
     use crate::cli::protocals::KeyPair;
 
     #[tokio::test]

@@ -279,7 +279,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::cli::party::{instance::Musig2Instance, sim::simulation::Simulation};
+    use crate::cli::party::{musig2_instance::Musig2Instance, sim::simulation::Simulation};
     use crate::cli::protocals::KeyPair;
 
     #[test]

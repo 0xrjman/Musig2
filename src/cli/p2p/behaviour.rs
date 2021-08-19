@@ -1,6 +1,6 @@
 //! P2P handling for musig2 nodes.
 use super::{CallMessage, Message, SwarmOptions};
-use crate::cli::party::{instance::ProtocolMessage, traits::state_machine::Msg};
+use crate::cli::party::{musig2_instance::ProtocolMessage, traits::state_machine::Msg};
 use libp2p::{
     floodsub::{Floodsub, FloodsubEvent},
     mdns::{Mdns, MdnsEvent},
@@ -57,8 +57,7 @@ impl NetworkBehaviourEventProcess<void::Void> for SignatureBehaviour {
 impl NetworkBehaviourEventProcess<FloodsubEvent> for SignatureBehaviour {
     fn inject_event(&mut self, event: FloodsubEvent) {
         if let FloodsubEvent::Message(msg) = event {
-            // ProtocolMessage messages from other parties and send them to rx of the finite state machine
-            // through swarm.behaviour_mut().options().tx
+            // Pass received ProtocolMessage to node through internal channel
             if let Ok(resp) = serde_json::from_slice::<Msg<ProtocolMessage>>(&msg.data) {
                 info!("received message form peers");
                 self.options().tx_party.send(resp).unwrap();
