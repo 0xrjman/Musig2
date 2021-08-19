@@ -117,6 +117,7 @@ impl SignatureBehaviour {
         };
         Message::Round1(round1)
     }
+    #[allow(dead_code)]
     pub fn solve_msg_in_generating_round_1(&mut self, msg: Vec<u8>) {
         self.floodsub.publish(
             TOPIC.to_owned(),

@@ -63,12 +63,12 @@ impl Node {
     }
 
     pub async fn run_instance(&mut self, msg: Vec<u8>) {
-        info!("try to generate instance, msg is {:?}", msg.clone());
+        info!("try to generate instance, msg is {:?}", msg);
 
         let key_pair = self.swarm.behaviour_mut().options().keyring.clone();
         let cur_peer_id = self.swarm.behaviour_mut().options().peer_id;
         let mut peer_ids = self.party.peer_ids.clone();
-        peer_ids.push(cur_peer_id.clone());
+        peer_ids.push(cur_peer_id);
         peer_ids.sort();
         let party_n = peer_ids.len() as u16;
         let mut party_i = 0;
@@ -79,7 +79,7 @@ impl Node {
         }
         assert!(party_i > 0, "party_i must be positive!");
 
-        let instance = Musig2Instance::with_fixed_seed(party_i, party_n, msg.clone(), key_pair);
+        let instance = Musig2Instance::with_fixed_seed(party_i, party_n, msg, key_pair);
         let rx_node = self.swarm.behaviour_mut().options().tx_party.subscribe();
         // self.party.add_instance(instance, rx.clone());
 
@@ -278,7 +278,7 @@ impl Node {
                         match event {
                             SwarmEvent::ConnectionEstablished { endpoint, peer_id, .. } => {
                                 if let ConnectedPoint::Dialer { address } = endpoint {
-                                    self.add_party(address.clone(), peer_id.clone());
+                                    self.add_party(address.clone(), peer_id);
                                     debug!("Connected in {:?}", address);
                                 };
                             },

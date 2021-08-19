@@ -42,9 +42,7 @@ pub struct SignInfo {
 
 impl SignInfo {
     pub fn new(msg: String) -> Self {
-        Self {
-            msg: msg.to_string(),
-        }
+        Self { msg }
     }
     pub fn get_cmd(&mut self, cmd: &str) -> String {
         let order = format!("{} {}", cmd, self.msg);

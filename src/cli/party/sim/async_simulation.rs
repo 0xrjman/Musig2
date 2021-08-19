@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use crate::cli::party::{
     traits::state_machine::{Msg, StateMachine},
     {async_protocol, async_protocol::AsyncProtocol, watcher::StderrWatcher},

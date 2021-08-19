@@ -223,10 +223,9 @@ where
         let round_n = state.current_round();
         if self.current_round != Some(round_n) {
             self.current_round = Some(round_n);
-            self.deadline = match state.round_timeout() {
-                Some(timeout) => Some(time::Instant::now() + timeout),
-                None => None,
-            }
+            self.deadline = state
+                .round_timeout()
+                .map(|timeout| time::Instant::now() + timeout);
         }
 
         Ok(())
@@ -273,7 +272,7 @@ pub enum Error<E, RE, SE> {
     /// Buggy AsyncProtocol implementation!
     ///
     /// If you've got this error, please, report bug.
-    InternalError(InternalError),
+    InternalErr(InternalError),
 }
 
 impl<E, RE, SE> From<BadStateMachineReason> for Error<E, RE, SE> {
@@ -284,7 +283,7 @@ impl<E, RE, SE> From<BadStateMachineReason> for Error<E, RE, SE> {
 
 impl<E, RE, SE> From<InternalError> for Error<E, RE, SE> {
     fn from(err: InternalError) -> Self {
-        Error::InternalError(err)
+        Error::InternalErr(err)
     }
 }
 
@@ -326,7 +325,7 @@ where
             Self::BadStateMachine(err) => {
                 write!(f, "buggy state machine implementation: {}", err)
             }
-            Self::InternalError(err) => {
+            Self::InternalErr(err) => {
                 write!(f, "internal error: {:?}", err)
             }
         }
@@ -351,7 +350,7 @@ where
             Self::RecvEof => None,
             Self::Exhausted => None,
             Self::BadStateMachine(_) => None,
-            Self::InternalError(_) => None,
+            Self::InternalErr(_) => None,
         }
     }
 }
