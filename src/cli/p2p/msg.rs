@@ -14,7 +14,6 @@ pub enum SignState {
     Round2End,
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Serialize, Deserialize)]
 pub enum EventType {
     Response(Message),

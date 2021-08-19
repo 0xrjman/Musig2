@@ -1,7 +1,4 @@
 //! The structure of parties, Per party is a StateMachine
-
-use traits::message::MessageContainer;
-
 pub mod async_protocol;
 mod broadcast;
 pub mod instance;
@@ -11,9 +8,9 @@ pub mod session;
 mod sim;
 mod store_err;
 pub mod traits;
-pub(crate) mod watcher;
+pub mod watcher;
 
-pub type Store<C> = <C as MessageContainer>::Store;
+pub type Store<C> = <C as traits::message::MessageContainer>::Store;
 pub use instance::*;
 pub use musig2::*;
 pub use session::*;

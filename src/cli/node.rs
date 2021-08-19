@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 use super::{
     p2p::*,
     party::{Musig2Instance, Musig2Party},
@@ -56,7 +55,6 @@ impl Node {
             swarm,
             party,
             other: Other { topic },
-            // tx_party,
             rx_party,
             rx_inter,
         }
@@ -83,31 +81,11 @@ impl Node {
         let rx_node = self.swarm.behaviour_mut().options().tx_party.subscribe();
         // self.party.add_instance(instance, rx.clone());
 
-        // let party = Arc::clone(&self.party.instance);
-
-        // let h = tokio::spawn(async move {
-        //     if let Some(s) = party.lock().unwrap().as_mut() {
-        //         s.run();
-        //     };
-        // });
-
-        // let mut msession =
-        //     self.party.instances
-        //         .get(MSESSION_ID).unwrap();
-
-        // if let Some(msession) = _instance {
-        // }
-
         let parties = self.party.parties.clone();
         let peer_ids = self.party.peer_ids.clone();
         let tx_node = self.party.tx_node.clone();
 
-        // Sending message from node to party
-        // let (tx_party, rx_node) = broadcast::channel(50);
-        // Sending message from party to node
-        // let (tx_node, rx_party) = broadcast::channel(50);
-
-        let _ = tokio::spawn(async move {
+        tokio::spawn(async move {
             // Receive messages from behaviour
             let incoming = incoming(rx_node, instance.party_ind());
             // Send message to behaviour
@@ -124,28 +102,10 @@ impl Node {
                 peer_ids,
             );
 
-            info!("================ msession.run start ==================");
+            info!("================ session.run start ==================");
             msession.run().await;
-            info!("================ msession.run over  ==================");
+            info!("================ session.run over  ==================");
         });
-
-        // let mut recv = self.party.tx_node.subscribe();
-        // tokio::spawn(async move {
-        //     info!("------------------------------------------------------------------");
-        //     let recv_msg = recv.recv().await.unwrap();
-        //     info!("-------------------rev msg is {:?}", recv_msg);
-        // });
-
-        // self.swarm.behaviour_mut().publish_msg(
-        //     msg.clone()
-        // );
-    }
-
-    pub async fn loop_recv(&mut self) {
-        loop {
-            let recv_msg = self.rx_party.recv().await.unwrap();
-            self.publish_msg(recv_msg);
-        }
     }
 
     pub fn publish_msg(&mut self, msg: Msg<ProtocolMessage>) {
@@ -168,49 +128,6 @@ impl Node {
             .floodsub
             .publish(topic, json.as_bytes());
     }
-
-    // #[allow(dead_code)]
-    // pub async fn gen_session(&mut self, msg: Vec<u8>) -> AsyncSession {
-    //     info!("try to generate instance, msg is {:?}", msg);
-    //     let key_pair = self.swarm.behaviour_mut().options().keyring.clone();
-    //     let cur_peer_id = self.swarm.behaviour_mut().options().peer_id;
-    //     let mut peer_ids = self.party.peer_ids.clone();
-    //     peer_ids.push(cur_peer_id.clone());
-    //     peer_ids.sort();
-    //     let party_n = peer_ids.len() as u16;
-    //     let mut party_i = 0;
-    //     for (k, peer_id) in peer_ids.iter().enumerate() {
-    //         if peer_id.as_ref() == cur_peer_id.as_ref() {
-    //             party_i = (k + 1) as u16;
-    //         }
-    //     }
-    //     assert!(party_i > 0, "party_i must be positive!");
-
-    //     let instance = Musig2Instance::with_fixed_seed(party_i, party_n, msg, key_pair);
-    //     let rx = self.swarm.behaviour_mut().options().tx.subscribe();
-    //     // self.party.add_instance(instance, rx.clone());
-
-    //     let parties = self.party.parties.clone();
-    //     let peer_ids = self.party.peer_ids.clone();
-    //     let tx = self.party.tx_node.clone();
-
-    //     // Receive messages from behaviour
-    //     let incoming = incoming(rx, instance.party_ind());
-    //     // Send message to behaviour
-    //     let outgoing = Outgoing { sender: tx };
-    //     // Create a async instance which can run as musig2
-    //     let async_instance = AsyncProtocol::new(instance, incoming, outgoing).set_watcher(StderrWatcher);
-
-    //     // Create a session that can execute musig2
-    //     let msession = AsyncSession::with_fixed_instance(
-    //         MSESSION_ID.to_string(),
-    //         async_instance,
-    //         parties,
-    //         peer_ids,
-    //     );
-
-    //     msession
-    // }
 
     pub fn add_party(&mut self, addr: Multiaddr, peer_id: PeerId) {
         self.party.add_party(addr);
@@ -237,27 +154,11 @@ impl Node {
     }
 
     pub async fn handle_sign(&mut self, cmd: &str) {
-        // let topic = swarm.behaviour_mut().options().topic.clone();
         let rest = cmd.strip_prefix("sign ").unwrap();
         let msg = Vec::from(rest.as_bytes());
         info!("handle sign {:?}", msg);
-        // let state = SIGNSTATE.lock().unwrap().get(&topic).unwrap().clone();
-        // if let SignState::Round2End = state {
-        //     SIGNSTATE
-        //         .lock()
-        //         .unwrap()
-        //         .insert(topic.clone(), SignState::Round1Send);
-        //     println!(
-        //         "peerid start sign, send round1:{:?}",
-        //         swarm.behaviour_mut().options().peer_id.clone()
-        //     );
-        //     MSG.lock().unwrap().insert(topic, msg.clone());
-        //     swarm.behaviour_mut().solve_msg_in_generating_round_1(msg);
-        // };
-        self.run_instance(msg.clone()).await;
 
-        // let mut session = self.gen_session(msg).await;
-        // session.run().await;
+        self.run_instance(msg.clone()).await;
     }
 
     pub async fn run(&mut self) -> Result<(), Box<dyn Error>> {
@@ -395,23 +296,3 @@ pub async fn state_into_event(e: SignState) -> Option<EventType> {
         _ => None,
     }
 }
-
-// pub async fn handle_sign(cmd: &str, swarm: &mut Swarm<SignatureBehaviour>) {
-//     // let topic = swarm.behaviour_mut().options().topic.clone();
-//     let rest = cmd.strip_prefix("sign ").unwrap();
-//     let msg = Vec::from(rest.as_bytes());
-//     // let state = SIGNSTATE.lock().unwrap().get(&topic).unwrap().clone();
-//     // if let SignState::Round2End = state {
-//     //     SIGNSTATE
-//     //         .lock()
-//     //         .unwrap()
-//     //         .insert(topic.clone(), SignState::Round1Send);
-//     //     println!(
-//     //         "peerid start sign, send round1:{:?}",
-//     //         swarm.behaviour_mut().options().peer_id.clone()
-//     //     );
-//     //     MSG.lock().unwrap().insert(topic, msg.clone());
-//     //     swarm.behaviour_mut().solve_msg_in_generating_round_1(msg);
-//     // };
-//     // let
-// }

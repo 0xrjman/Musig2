@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 use super::{
     store_err::StoreErr,
     traits::{
@@ -14,38 +13,6 @@ pub struct BroadcastMsgs<B> {
     pub my_ind: u16,
     pub msgs: Vec<B>,
 }
-
-// impl<B> BroadcastMsgs<B>
-// where
-//     B: 'static,
-// {
-//     /// Turns a container into iterator of messages with parties indexes (1 <= i <= n)
-//     pub fn into_iter_indexed(self) -> impl Iterator<Item = (u16, B)> {
-//         let my_ind = usize::from(self.my_ind);
-//         let ind = move |i| {
-//             if i < my_ind - 1 {
-//                 i as u16 + 1
-//             } else {
-//                 i as u16 + 2
-//             }
-//         };
-//         self.msgs
-//             .into_iter()
-//             .enumerate()
-//             .map(move |(i, m)| (ind(i), m))
-//     }
-//
-//     /// Turns container into vec of `n-1` messages
-//     pub fn into_vec(self) -> Vec<B> {
-//         self.msgs
-//     }
-//
-//     /// Turns container into vec of `n` messages (where given message lies at index `party_i-1`)
-//     pub fn into_vec_including_me(mut self, me: B) -> Vec<B> {
-//         self.msgs.insert(self.my_ind as usize - 1, me);
-//         self.msgs
-//     }
-// }
 
 impl<B> ops::Index<u16> for BroadcastMsgs<B> {
     type Output = B;

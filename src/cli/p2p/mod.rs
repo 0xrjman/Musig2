@@ -89,10 +89,3 @@ pub async fn create_swarm(options: SwarmOptions) -> Result<TSwarm, Box<dyn Error
 
     Ok(swarm)
 }
-
-// pub fn connection_point_addr(cp: ConnectedPoint) -> Multiaddr {
-//     match cp {
-//         ConnectedPoint::Dialer { address } => address,
-//         ConnectedPoint::Listener { send_back_addr, .. } => send_back_addr,
-//     }
-// }
