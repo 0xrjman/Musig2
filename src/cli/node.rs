@@ -193,10 +193,10 @@ impl Node {
                     EventType::AsyncResponse(m) => {
                         self.publish_msg(m);
                         info!("publish msg succeed");
-                    },
+                    }
                     EventType::Response(_resp) => {
                         debug!("EventType::Response, has been deprecated")
-                    },
+                    }
                     EventType::CallPeers(call) => match call {
                         CallMessage::CoopSign(mut sign_info) => {
                             let cmd = sign_info.get_cmd("sign");

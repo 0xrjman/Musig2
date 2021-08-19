@@ -1,5 +1,3 @@
-use log::info;
-
 use super::{
     store_err::StoreErr,
     traits::{
