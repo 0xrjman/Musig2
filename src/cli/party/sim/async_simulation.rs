@@ -1,15 +1,19 @@
-use std::fmt::Debug;
-use std::iter;
-use std::pin::Pin;
-use std::task::{Context, Poll};
-
-use futures::future::ready;
-use futures::sink::Sink;
-use futures::stream::{FusedStream, StreamExt};
+use crate::cli::party::{
+    traits::state_machine::{Msg, StateMachine},
+    {async_protocol, async_protocol::AsyncProtocol, watcher::StderrWatcher},
+};
+use futures::{
+    future::ready,
+    sink::Sink,
+    stream::{FusedStream, StreamExt},
+};
+use std::{
+    fmt::Debug,
+    iter,
+    pin::Pin,
+    task::{Context, Poll},
+};
 use tokio::sync::broadcast;
-
-use crate::cli::party::traits::state_machine::{Msg, StateMachine};
-use crate::cli::party::{async_protocol, async_protocol::AsyncProtocol, watcher::StderrWatcher};
 
 /// Emulates running protocol between local parties using [AsyncProtocol](crate::AsyncProtocol)
 ///
@@ -194,8 +198,6 @@ pub enum AsyncSimulationError<SM: StateMachine> {
 
 #[cfg(test)]
 mod tests {
-    use tokio::sync::broadcast;
-
     use crate::cli::party::{instance::Musig2Instance, sim::async_simulation::AsyncSimulation};
     use crate::cli::protocals::KeyPair;
 
@@ -212,22 +214,5 @@ mod tests {
             .run()
             .await;
         println!("Simulation results: {:?}", results);
-
-        let (tx, mut rx) = broadcast::channel(2);
-        let tx_clone = tx.clone();
-        tx_clone.send(10).unwrap();
-        tx_clone.send(20).unwrap();
-        tx_clone.send(30).unwrap();
-    
-        // The receiver lagged behind
-        assert!(rx.recv().await.is_err());
-    
-        // At this point, we can abort or continue with lost messages
-    
-        let rx_20 = rx.recv().await.unwrap();
-        println!("rx_20 is {:?}", rx_20);
-
-        assert_eq!(30, rx.recv().await.unwrap());
-        
     }
 }

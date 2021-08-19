@@ -2,10 +2,10 @@
 use libp2p::{floodsub::Topic, identity::Keypair, swarm::SwarmBuilder, Multiaddr, PeerId};
 use std::{env, error::Error, path::PathBuf};
 
-pub mod addr;
+// pub mod addr;
 pub mod behaviour;
 pub mod msg;
-pub mod swarm;
+// pub mod swarm;
 pub mod transport;
 
 // pub use addr::{MultiaddrWithPeerId, MultiaddrWithoutPeerId};
@@ -15,11 +15,8 @@ pub use transport::build_transport;
 // pub use swarm::*;
 
 use super::protocals::signature;
+use crate::cli::party::{instance::ProtocolMessage, musig2::Sender, traits::state_machine::Msg};
 use crate::TOPIC;
-
-use crate::cli::party::musig2::{Receiver, Sender};
-use crate::cli::party::{instance::ProtocolMessage, traits::state_machine::Msg};
-
 use tokio::sync::broadcast;
 
 /// Type alias for [`libp2p::Swarm`] running the [`behaviour::Behaviour`] with the given [`SignatureBehaviour`].

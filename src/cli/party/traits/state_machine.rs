@@ -1,8 +1,7 @@
 //! Abstraction of state machine, per party is a state machine
 
-use std::time::Duration;
-
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
 
 /// State machine of party involved in round-based protocol
 pub trait StateMachine {

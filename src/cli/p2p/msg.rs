@@ -1,11 +1,8 @@
 use serde::{Deserialize, Serialize};
 
 use crate::cli::{
+    party::{instance::ProtocolMessage, traits::state_machine::Msg},
     protocals::signature::*,
-    party::{
-        instance::ProtocolMessage,
-        traits::state_machine::Msg
-    },
 };
 
 #[derive(Clone, Debug)]
@@ -45,7 +42,7 @@ pub struct SignInfo {
 
 impl SignInfo {
     pub fn new(msg: String) -> Self {
-        Self{
+        Self {
             msg: msg.to_string(),
         }
     }

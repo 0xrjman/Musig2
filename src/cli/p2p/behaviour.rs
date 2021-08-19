@@ -1,4 +1,14 @@
 //! P2P handling for musig2 nodes.
+use super::{CallMessage, Message, SwarmOptions};
+use crate::{
+    cli::{
+        p2p::SignState,
+        party::{instance::ProtocolMessage, traits::state_machine::Msg},
+        protocals::signature::*,
+    },
+    C, KEYAGG, KEY_PAIR, MSG, PENDINGSTATE, PKS, R, ROUND1, ROUND2, S, SIGNSTATE, STATE0, STATE1,
+    TOPIC,
+};
 use curv::elliptic::curves::{
     secp256_k1::{FE, GE},
     traits::ECPoint,
@@ -12,14 +22,6 @@ use libp2p::{
 };
 use log::{error, info};
 use tracing::trace;
-
-use super::{CallMessage, Message, SwarmOptions};
-use crate::cli::{p2p::SignState, protocals::signature::*};
-use crate::{
-    C, KEYAGG, KEY_PAIR, MSG, PENDINGSTATE, PKS, R, ROUND1, ROUND2, S, SIGNSTATE, STATE0, STATE1,
-    TOPIC,
-};
-use crate::cli::party::{instance::ProtocolMessage, traits::state_machine::Msg};
 
 #[derive(NetworkBehaviour)]
 pub struct SignatureBehaviour {
@@ -73,7 +75,7 @@ impl SignatureBehaviour {
     //     let topic = self.options.topic.clone();
     //     let sender = self.options.peer_id.clone().to_bytes();
     //     let (round_1_msg, _) = sign(self.options.keyring.clone());
-        
+
     //     let round1 = Round1 {
     //         topic: topic.clone().into(),
     //         sender,
@@ -206,7 +208,6 @@ impl NetworkBehaviourEventProcess<PingEvent> for SignatureBehaviour {
 impl NetworkBehaviourEventProcess<FloodsubEvent> for SignatureBehaviour {
     fn inject_event(&mut self, event: FloodsubEvent) {
         if let FloodsubEvent::Message(msg) = event {
-            // todo!The event type here may need to be redefined, and then it can receive
             // ProtocolMessage messages from other parties and send them to rx of the finite state machine
             // through swarm.behaviour_mut().options().tx
             if let Ok(resp) = serde_json::from_slice::<Msg<ProtocolMessage>>(&msg.data) {
@@ -223,7 +224,7 @@ impl NetworkBehaviourEventProcess<FloodsubEvent> for SignatureBehaviour {
                         let call = CallMessage::CoopSign(sign_info);
                         // self.handle_sign(&cmd).await;
                         self.options.tx_node.send(call).unwrap();
-                    },
+                    }
                 }
             }
 

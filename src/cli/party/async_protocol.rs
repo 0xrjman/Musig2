@@ -1,16 +1,18 @@
 //! Instruments for executing protocol in async environment
-
-use std::fmt::{self, Debug};
-use std::future::Future;
-
-use futures::future::{Either, FutureExt};
-use futures::sink::Sink;
-use futures::stream::{self, FusedStream, Stream, StreamExt};
-use futures::SinkExt;
+use super::watcher::{BlindWatcher, ProtocolWatcher, When};
+use futures::{
+    future::{Either, FutureExt},
+    sink::Sink,
+    stream::{self, FusedStream, Stream, StreamExt},
+    SinkExt,
+};
 use log::info;
+use std::{
+    fmt::{self, Debug},
+    future::Future,
+};
 use tokio::time::{self, timeout_at};
 
-use super::watcher::{BlindWatcher, ProtocolWatcher, When};
 use crate::cli::party::traits::state_machine::{IsCritical, Msg, StateMachine};
 
 /// Executes protocol in async environment using [tokio] backend
@@ -146,7 +148,6 @@ where
 
     async fn handle_incoming(&mut self) -> Result<(), Error<SM::Err, IErr, O::Error>> {
         let state = self.state.as_mut().ok_or(InternalError::MissingState)?;
-        // todo! Ensure that the state machine here can correctly receive data from the behavior event
         info!("async handle incoming rx_node");
         match Self::enforce_timeout(self.deadline, self.incoming.next()).await {
             Ok(Some(Ok(msg))) => match state.handle_incoming(msg) {

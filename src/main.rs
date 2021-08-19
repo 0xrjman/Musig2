@@ -1,12 +1,15 @@
+use curv::{
+    elliptic::curves::secp256_k1::{FE, GE},
+    BigInt,
+};
+use lazy_static::lazy_static;
 use libp2p::{floodsub::Topic, PeerId};
 use once_cell::sync::Lazy;
-
-use curv::elliptic::curves::secp256_k1::{FE, GE};
-use curv::BigInt;
 use std::collections::HashMap;
 use std::sync::Mutex;
 
-use lazy_static::lazy_static;
+mod cli;
+use cli::{node::Node, p2p::SignState, protocals::signature::*};
 
 static TOPIC: Lazy<Topic> = Lazy::new(|| Topic::new("test"));
 static KEY_PAIR: Lazy<KeyPair> = Lazy::new(KeyPair::create);
@@ -29,11 +32,6 @@ lazy_static! {
     static ref S: Mutex<HashMap<Topic, FE>> = Mutex::new(HashMap::<Topic, FE>::new());
     static ref C: Mutex<HashMap<Topic, BigInt>> = Mutex::new(HashMap::<Topic, BigInt>::new());
 }
-
-mod cli;
-use cli::node::Node;
-use cli::p2p::{SignState, behaviour::*};
-use cli::protocals::signature::*;
 
 #[tokio::main]
 async fn main() {

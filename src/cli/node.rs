@@ -1,14 +1,17 @@
+#![allow(dead_code)]
 use super::{
     p2p::*,
     party::{Musig2Instance, Musig2Party},
 };
-use crate::cli::party::async_protocol::AsyncProtocol;
-use crate::cli::party::musig2::{incoming, Outgoing};
-use crate::cli::party::traits::state_machine::StateMachine;
-use crate::cli::party::{async_protocol, watcher::StderrWatcher};
-use crate::cli::party::{instance::ProtocolMessage, traits::state_machine::Msg};
+use crate::cli::party::{
+    async_protocol::AsyncProtocol,
+    instance::ProtocolMessage,
+    musig2::{incoming, Outgoing},
+    traits::state_machine::{Msg, StateMachine},
+    watcher::StderrWatcher,
+    AsyncSession, MSESSION_ID,
+};
 use crate::*;
-use crate::cli::party::{MSESSION_ID, AsyncSession};
 use libp2p::{
     core::ConnectedPoint,
     floodsub::Topic,
@@ -16,22 +19,17 @@ use libp2p::{
     swarm::{Swarm, SwarmEvent},
     Multiaddr, PeerId,
 };
-// use crate::cli::p2p::EventType::CallPeers;
 use log::{debug, error, info};
-use std::cell::RefCell;
 use std::error::Error;
-use std::sync::{Arc, Mutex};
-use tokio::io::AsyncBufReadExt;
-use tokio::sync::broadcast;
+use tokio::{io::AsyncBufReadExt, sync::broadcast};
 
 pub struct Node {
     swarm: TSwarm,
     pub party: Musig2Party<Multiaddr>,
     pub other: Other,
-    /// Responsible for sending message to party
-    // pub tx_party: broadcast::Sender<Msg<ProtocolMessage>>,
     /// Responsible for receiving message from party
     pub rx_party: broadcast::Receiver<Msg<ProtocolMessage>>,
+    /// Responsible for receiving message delivered internally
     pub rx_inter: broadcast::Receiver<CallMessage>,
 }
 
@@ -47,7 +45,7 @@ impl Node {
         let (tx_node, rx_party) = broadcast::channel(50);
         // Used as internal communication
         let (tx_inter, rx_inter) = broadcast::channel(50);
-        
+
         let options = SwarmOptions::new_test_options(tx_inter, tx_party);
         let mut swarm = create_swarm(options.clone()).await.unwrap();
         let topic = swarm.behaviour_mut().options().topic.clone();
@@ -65,9 +63,7 @@ impl Node {
     }
 
     pub async fn run_instance(&mut self, msg: Vec<u8>) {
-
         info!("try to generate instance, msg is {:?}", msg.clone());
-        // self.loop_recv().await;
 
         let key_pair = self.swarm.behaviour_mut().options().keyring.clone();
         let cur_peer_id = self.swarm.behaviour_mut().options().peer_id;
@@ -89,18 +85,17 @@ impl Node {
 
         // let party = Arc::clone(&self.party.instance);
 
-        // // todo!: Asynchronous thread runs up the state machine
         // let h = tokio::spawn(async move {
         //     if let Some(s) = party.lock().unwrap().as_mut() {
         //         s.run();
         //     };
         // });
 
-        // let mut msession = 
+        // let mut msession =
         //     self.party.instances
         //         .get(MSESSION_ID).unwrap();
 
-        // if let Some(msession) = _instance { 
+        // if let Some(msession) = _instance {
         // }
 
         let parties = self.party.parties.clone();
@@ -112,15 +107,15 @@ impl Node {
         // Sending message from party to node
         // let (tx_node, rx_party) = broadcast::channel(50);
 
-
         let _ = tokio::spawn(async move {
             // Receive messages from behaviour
             let incoming = incoming(rx_node, instance.party_ind());
             // Send message to behaviour
             let outgoing = Outgoing { sender: tx_node };
             // Create a async instance which can run as musig2
-            let async_instance = AsyncProtocol::new(instance, incoming, outgoing).set_watcher(StderrWatcher);
-            
+            let async_instance =
+                AsyncProtocol::new(instance, incoming, outgoing).set_watcher(StderrWatcher);
+
             // Create a session that can execute musig2
             let mut msession = AsyncSession::with_fixed_instance(
                 MSESSION_ID.to_string(),
@@ -140,7 +135,7 @@ impl Node {
         //     let recv_msg = recv.recv().await.unwrap();
         //     info!("-------------------rev msg is {:?}", recv_msg);
         // });
-        
+
         // self.swarm.behaviour_mut().publish_msg(
         //     msg.clone()
         // );
@@ -157,7 +152,10 @@ impl Node {
         let topic = self.swarm.behaviour_mut().options().topic.clone();
         let json = serde_json::to_string(&msg).expect("can jsonify response");
 
-        self.swarm.behaviour_mut().floodsub.publish(topic,json.as_bytes());
+        self.swarm
+            .behaviour_mut()
+            .floodsub
+            .publish(topic, json.as_bytes());
     }
 
     pub fn call_peers(&mut self, msg: SignInfo) {
@@ -165,7 +163,10 @@ impl Node {
         let call = CallMessage::CoopSign(msg);
         let json = serde_json::to_string(&call).expect("can jsonify response");
 
-        self.swarm.behaviour_mut().floodsub.publish(topic,json.as_bytes());
+        self.swarm
+            .behaviour_mut()
+            .floodsub
+            .publish(topic, json.as_bytes());
     }
 
     // #[allow(dead_code)]
@@ -199,7 +200,7 @@ impl Node {
     //     let outgoing = Outgoing { sender: tx };
     //     // Create a async instance which can run as musig2
     //     let async_instance = AsyncProtocol::new(instance, incoming, outgoing).set_watcher(StderrWatcher);
-        
+
     //     // Create a session that can execute musig2
     //     let msession = AsyncSession::with_fixed_instance(
     //         MSESSION_ID.to_string(),
@@ -310,20 +311,18 @@ impl Node {
                         // println!("Response1:{:?}", m.clone());
                         self.publish_msg(m);
                         info!("publish msg succeed");
-                    },
+                    }
                     EventType::Response(resp) => {
                         let json = serde_json::to_string(&resp).expect("can jsonify response");
                         self.swarm
                             .behaviour_mut()
                             .floodsub()
                             .publish(TOPIC.to_owned(), json.as_bytes());
-                    },
-                    EventType::CallPeers(call) => {
-                        match call {
-                            CallMessage::CoopSign(mut sign_info) => {
-                                let cmd = sign_info.get_cmd("sign");
-                                self.handle_sign(&cmd).await;
-                            },
+                    }
+                    EventType::CallPeers(call) => match call {
+                        CallMessage::CoopSign(mut sign_info) => {
+                            let cmd = sign_info.get_cmd("sign");
+                            self.handle_sign(&cmd).await;
                         }
                     },
                     EventType::Input(line) => match line.as_str() {
@@ -332,7 +331,7 @@ impl Node {
                             info!("sign msg: {:?}", msg);
                             self.call_peers(SignInfo::new(msg.to_string()));
                             self.handle_sign(cmd).await;
-                        },
+                        }
                         cmd if cmd.starts_with("verify") => {
                             self.swarm.behaviour_mut().verify_sign().await
                         }

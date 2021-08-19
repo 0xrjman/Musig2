@@ -1,24 +1,24 @@
 #![allow(dead_code)]
-
-use futures::sink::Sink;
+use super::{AsyncSession, MSessionId, Musig2Instance, MSESSION_ID};
+use crate::cli::party::{
+    async_protocol::AsyncProtocol,
+    instance::ProtocolMessage,
+    sim::benchmark::{Benchmark, BenchmarkResults},
+    traits::state_machine::*,
+    watcher::StderrWatcher,
+};
+use futures::{
+    future::ready,
+    sink::Sink,
+    stream::{FusedStream, StreamExt},
+};
 use libp2p::{Multiaddr, PeerId};
-use std::collections::HashMap;
-use std::fmt::Debug;
-use std::pin::Pin;
-use std::task::{Context, Poll};
-
-use crate::cli::party::async_protocol::AsyncProtocol;
-use crate::cli::party::instance::ProtocolMessage;
-use crate::cli::party::sim::benchmark::Benchmark;
-pub use crate::cli::party::sim::benchmark::{BenchmarkResults, Measurements};
-use crate::cli::party::traits::state_machine::*;
-use crate::cli::party::{async_protocol, watcher::StderrWatcher};
-use futures::future::ready;
-use futures::stream::{FusedStream, StreamExt};
-
-use std::sync::{Arc, Mutex};
+use std::{
+    collections::HashMap,
+    pin::Pin,
+    task::{Context, Poll},
+};
 use tokio::sync::broadcast;
-use super::{MSESSION_ID, AsyncSession, MSessionId, Musig2Instance};
 
 pub type Incoming<M> =
     Pin<Box<dyn FusedStream<Item = Result<Msg<M>, broadcast::error::RecvError>> + Send>>;
@@ -121,16 +121,19 @@ impl Musig2Party<Multiaddr> {
         // Receive messages from behaviour
         let incoming = incoming(receive, instance.party_ind());
         // Send message to behaviour
-        let outgoing = Outgoing { sender: self.tx_node.clone() };
+        let outgoing = Outgoing {
+            sender: self.tx_node.clone(),
+        };
         // Create a async instance which can run as musig2
-        let async_instance = AsyncProtocol::new(instance, incoming, outgoing).set_watcher(StderrWatcher);
-        
+        let async_instance =
+            AsyncProtocol::new(instance, incoming, outgoing).set_watcher(StderrWatcher);
+
         // Create a session that can execute musig2
         let msession = AsyncSession::with_fixed_instance(
             MSESSION_ID.to_string(),
             async_instance,
             self.parties.clone(),
-            self.peer_ids.clone()
+            self.peer_ids.clone(),
         );
         // self.instance = Arc::new(Mutex::new(Some(instance)));
         self.instances.insert(MSESSION_ID.to_string(), msession);
@@ -155,7 +158,10 @@ impl<P> Musig2Party<P> {
 
     fn asset_dev(&self) {
         if self.instances.contains_key("test") {
-            println!("Currently in a [test] environment, numbers of instances is {:?}", self.instances.len());
+            println!(
+                "Currently in a [test] environment, numbers of instances is {:?}",
+                self.instances.len()
+            );
         }
     }
 

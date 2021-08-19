@@ -1,11 +1,12 @@
 #![allow(dead_code)]
-use std::cmp::Ordering;
-use std::ops;
-
-use super::traits::state_machine::Msg;
-
-use super::store_err::StoreErr;
-use super::traits::message::{MessageContainer, MessageStore};
+use super::{
+    store_err::StoreErr,
+    traits::{
+        message::{MessageContainer, MessageStore},
+        state_machine::Msg,
+    },
+};
+use std::{cmp::Ordering, ops};
 
 /// Received broadcast messages from every protocol participant
 #[derive(Debug)]

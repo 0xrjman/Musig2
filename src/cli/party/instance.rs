@@ -1,7 +1,5 @@
-#![allow(dead_code)]
-use std::{fmt, mem::replace, time::Duration};
-
 use serde::{Deserialize, Serialize};
+use std::{fmt, mem::replace, time::Duration};
 
 use super::{
     broadcast::BroadcastMsgs,
@@ -53,7 +51,7 @@ impl Musig2Instance {
     //         my_ind: self.party_i,
     //         key_pair: self.round.
     //     });
-    //     self  
+    //     self
     // }
 
     fn gmap_queue<'a, T, F>(&'a mut self, mut f: F) -> impl Push<Msg<T>> + 'a
