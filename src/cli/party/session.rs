@@ -65,11 +65,13 @@ impl AsyncSession {
             return;
         }
         self.exhausted = true;
-        println!("Session {:?} is running", self.session_id);
+        info!("Session {:?} is running", self.session_id);
 
         let ret = self.runtime.run().await;
         if let Ok(result) = ret {
             info!("Runtime result is {:?}", result);
+        } else {
+            info!("Signing session failed")
         }
     }
 }

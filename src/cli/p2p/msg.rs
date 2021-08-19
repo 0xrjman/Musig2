@@ -5,21 +5,12 @@ use crate::cli::{
     protocals::signature::*,
 };
 
-#[derive(Clone, Debug)]
-pub enum SignState {
-    Prepare(Message),
-    Round1Send,
-    Round1End(Message),
-    Round2Send,
-    Round2End,
-}
-
 #[derive(Debug, Serialize, Deserialize)]
 pub enum EventType {
     Response(Message),
     Input(String),
     Send(Message),
-    Response1(Msg<ProtocolMessage>),
+    AsyncResponse(Msg<ProtocolMessage>),
     CallPeers(CallMessage),
 }
 

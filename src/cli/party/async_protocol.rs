@@ -152,14 +152,20 @@ where
         match Self::enforce_timeout(self.deadline, self.incoming.next()).await {
             Ok(Some(Ok(msg))) => match state.handle_incoming(msg) {
                 Ok(()) => (),
-                Err(err) if err.is_critical() => return Err(Error::HandleIncoming(err)),
-                Err(err) => self
-                    .watcher
-                    .caught_non_critical_error(When::HandleIncoming, err),
+                Err(err) if err.is_critical() => {
+                    info!("meet critical err");
+                    return Err(Error::HandleIncoming(err));
+                }
+                Err(err) => {
+                    info!("meet non-critical err");
+                    self.watcher
+                        .caught_non_critical_error(When::HandleIncoming, err)
+                }
             },
             Ok(Some(Err(err))) => return Err(Error::Recv(err)),
             Ok(None) => return Err(Error::RecvEof),
             Err(_) => {
+                info!("meet other err");
                 let err = state.round_timeout_reached();
                 return Err(Error::HandleIncomingTimeout(err));
             }

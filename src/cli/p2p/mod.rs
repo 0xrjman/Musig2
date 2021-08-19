@@ -16,7 +16,6 @@ pub use transport::build_transport;
 
 use super::protocals::signature;
 use crate::cli::party::{instance::ProtocolMessage, musig2::Sender, traits::state_machine::Msg};
-use crate::TOPIC;
 use tokio::sync::broadcast;
 
 /// Type alias for [`libp2p::Swarm`] running the [`behaviour::Behaviour`] with the given [`SignatureBehaviour`].
@@ -79,7 +78,7 @@ pub async fn create_swarm(options: SwarmOptions) -> Result<TSwarm, Box<dyn Error
     let transp = build_transport(options.clone().keypair);
     let mut behaviour: SignatureBehaviour = build_signature_behaviour(options.clone()).await;
     // Configure at startup
-    behaviour.floodsub.subscribe(TOPIC.to_owned());
+    behaviour.floodsub.subscribe(options.topic);
 
     let swarm = SwarmBuilder::new(transp, behaviour, options.peer_id)
         .executor(Box::new(|fut| {

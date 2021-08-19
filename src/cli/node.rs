@@ -10,10 +10,8 @@ use crate::cli::party::{
     watcher::StderrWatcher,
     AsyncSession, MSESSION_ID,
 };
-use crate::*;
 use libp2p::{
     core::ConnectedPoint,
-    floodsub::Topic,
     futures::StreamExt,
     swarm::{Swarm, SwarmEvent},
     Multiaddr, PeerId,
@@ -25,15 +23,10 @@ use tokio::{io::AsyncBufReadExt, sync::broadcast};
 pub struct Node {
     swarm: TSwarm,
     pub party: Musig2Party<Multiaddr>,
-    pub other: Other,
     /// Responsible for receiving message from party
     pub rx_party: broadcast::Receiver<Msg<ProtocolMessage>>,
     /// Responsible for receiving message delivered internally
     pub rx_inter: broadcast::Receiver<CallMessage>,
-}
-
-pub struct Other {
-    topic: Topic,
 }
 
 impl Node {
@@ -46,15 +39,13 @@ impl Node {
         let (tx_inter, rx_inter) = broadcast::channel(50);
 
         let options = SwarmOptions::new_test_options(tx_inter, tx_party);
-        let mut swarm = create_swarm(options.clone()).await.unwrap();
-        let topic = swarm.behaviour_mut().options().topic.clone();
+        let swarm = create_swarm(options.clone()).await.unwrap();
 
         let party = Musig2Party::new(tx_node, rx_node);
 
         Node {
             swarm,
             party,
-            other: Other { topic },
             rx_party,
             rx_inter,
         }
@@ -165,11 +156,6 @@ impl Node {
         let addr = self.swarm.behaviour_mut().options().listening_addrs.clone();
         Swarm::listen_on(&mut self.swarm, addr).expect("swarm can be started");
 
-        SIGNSTATE
-            .lock()
-            .unwrap()
-            .insert(TOPIC.to_owned(), SignState::Round2End);
-
         let mut stdin = tokio::io::BufReader::new(tokio::io::stdin()).lines();
         loop {
             let evt = {
@@ -195,30 +181,19 @@ impl Node {
                         };
                         None
                     },
-                    // response = response_rcv.recv() => Some(EventType::Response(response.expect("response exists"))),
-                    send = state_into_event(SIGNSTATE.lock().unwrap().get(&self.other.topic.clone()).unwrap().clone()) => send,
-                    recv = self.rx_party.recv() => Some(EventType::Response1(recv.expect("recv exists"))),
+                    recv_party = self.rx_party.recv() => Some(EventType::AsyncResponse(recv_party.expect("recv exists"))),
                     recv_inter = self.rx_inter.recv() => Some(EventType::CallPeers(recv_inter.expect("recv_inter exists"))),
-                    // recv_msg = self.rx_party.recv().await.unwrap() => {
-                    //     self.publish_msg(recv_msg);
-                    //     None
-                    // },
                 }
             };
 
             if let Some(event) = evt {
                 match event {
-                    EventType::Response1(m) => {
-                        // println!("Response1:{:?}", m.clone());
+                    EventType::AsyncResponse(m) => {
                         self.publish_msg(m);
                         info!("publish msg succeed");
                     }
-                    EventType::Response(resp) => {
-                        let json = serde_json::to_string(&resp).expect("can jsonify response");
-                        self.swarm
-                            .behaviour_mut()
-                            .floodsub()
-                            .publish(TOPIC.to_owned(), json.as_bytes());
+                    EventType::Response(_resp) => {
+                        debug!("EventType::Response, has been deprecated")
                     }
                     EventType::CallPeers(call) => match call {
                         CallMessage::CoopSign(mut sign_info) => {
@@ -234,65 +209,23 @@ impl Node {
                             self.handle_sign(cmd).await;
                         }
                         cmd if cmd.starts_with("verify") => {
-                            self.swarm.behaviour_mut().verify_sign().await
+                            // todo! Verify the signature
                         }
+                        // List the peer nodes that are currently connected
+                        // Example: $ list p
                         cmd if cmd.starts_with("list") => self.handle_list(cmd).await,
                         _ => error!("unknown command"),
                     },
-                    EventType::Send(m) => {
-                        self.swarm.behaviour_mut().floodsub().publish(
-                            TOPIC.to_owned(),
-                            serde_json::to_string(&m).unwrap().as_bytes(),
-                        );
-                        match m {
-                            Message::Round1(r1) => {
-                                let peer_id = self.swarm.behaviour_mut().options().peer_id;
-                                println!("{:?} send round1", peer_id);
-                                MSG.lock().unwrap().insert(TOPIC.to_owned(), r1.msg.clone());
-                                if let Some(s) = PENDINGSTATE.lock().unwrap().get(&TOPIC.to_owned())
-                                {
-                                    SIGNSTATE
-                                        .lock()
-                                        .unwrap()
-                                        .insert(TOPIC.to_owned(), s.clone());
-                                } else {
-                                    SIGNSTATE
-                                        .lock()
-                                        .unwrap()
-                                        .insert(TOPIC.to_owned(), SignState::Round1Send);
-                                }
-                            }
-                            Message::Round2(_) => {
-                                let peer_id = self.swarm.behaviour_mut().options().peer_id;
-                                println!("{:?} send round2", peer_id);
-                                SIGNSTATE
-                                    .lock()
-                                    .unwrap()
-                                    .insert(TOPIC.to_owned(), SignState::Round2Send);
-                            }
+                    EventType::Send(m) => match m {
+                        Message::Round1(_r1) => {
+                            debug!("send round1, has been deprecated");
                         }
-                    }
+                        Message::Round2(_r2) => {
+                            debug!("send round2, has been deprecated");
+                        }
+                    },
                 }
             }
         }
-    }
-}
-
-pub async fn state_into_event(e: SignState) -> Option<EventType> {
-    match e {
-        SignState::Prepare(r1) => Some(EventType::Send(r1)),
-        SignState::Round1End(r2) => Some(EventType::Send(r2)),
-        SignState::Round1Send => {
-            if let Some(s) = PENDINGSTATE.lock().unwrap().get(&TOPIC.to_owned()) {
-                SIGNSTATE
-                    .lock()
-                    .unwrap()
-                    .insert(TOPIC.to_owned(), s.clone());
-                None
-            } else {
-                None
-            }
-        }
-        _ => None,
     }
 }
