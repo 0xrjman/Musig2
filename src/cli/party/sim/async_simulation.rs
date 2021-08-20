@@ -199,6 +199,7 @@ pub enum AsyncSimulationError<SM: StateMachine> {
 
 #[cfg(test)]
 mod tests {
+    use crate::cli::node::format_musig_msg;
     use crate::cli::party::{
         musig2_instance::Musig2Instance, sim::async_simulation::AsyncSimulation,
     };
@@ -206,10 +207,10 @@ mod tests {
 
     #[tokio::test]
     async fn async_simulation_of_silly_protocol() {
-        let message = Vec::from("test".as_bytes());
-        let kp1 = KeyPair::create();
-        let kp2 = KeyPair::create();
-        let kp3 = KeyPair::create();
+        let message = format_musig_msg(Vec::from("test".as_bytes()));
+        let kp1 = KeyPair::create().unwrap();
+        let kp2 = KeyPair::create().unwrap();
+        let kp3 = KeyPair::create().unwrap();
         let results = AsyncSimulation::new()
             .add_party(Musig2Instance::with_fixed_seed(1, 3, message.clone(), kp1))
             .add_party(Musig2Instance::with_fixed_seed(2, 3, message.clone(), kp2))

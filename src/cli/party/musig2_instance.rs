@@ -14,7 +14,7 @@ use super::{
     },
     Store,
 };
-use crate::cli::protocals::signature::KeyPair;
+use crate::cli::protocals::musig2::KeyPair;
 
 pub struct Musig2Instance {
     round: R,
@@ -293,7 +293,7 @@ impl fmt::Debug for Musig2Instance {
 }
 
 // Rounds
-
+#[allow(clippy::large_enum_variant)]
 pub enum R {
     Prepare(Prepare),
     Round1(Round1),

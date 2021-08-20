@@ -279,15 +279,17 @@ where
 
 #[cfg(test)]
 mod tests {
+    use crate::cli::node::format_musig_msg;
     use crate::cli::party::{musig2_instance::Musig2Instance, sim::simulation::Simulation};
     use crate::cli::protocals::KeyPair;
 
     #[test]
-    fn simulate_silly_protocol() {
-        let message = Vec::from("test".as_bytes());
-        let kp1 = KeyPair::create();
-        let kp2 = KeyPair::create();
-        let kp3 = KeyPair::create();
+    fn simulate_musig_protocol() {
+        let message = format_musig_msg(Vec::from("test".as_bytes()));
+
+        let kp1 = KeyPair::create().unwrap();
+        let kp2 = KeyPair::create().unwrap();
+        let kp3 = KeyPair::create().unwrap();
 
         let mut simulation = Simulation::new();
         simulation

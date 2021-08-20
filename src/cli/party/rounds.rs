@@ -4,10 +4,13 @@ use super::{
     Store,
 };
 use crate::cli::protocals::{
-    signature::{sign, sign_double_prime, verify, KeyAgg, KeyPair, FE, GE},
-    State, StatePrime,
+    error::Musig2Error,
+    key::{PrivateKey, PublicKey},
+    musig2::*,
+    signature::*,
 };
-use curv::{elliptic::curves::traits::ECPoint, BigInt};
+use log::warn;
+use secp256k1::Message;
 use serde::{Deserialize, Serialize};
 
 /// Prepare round performs preprocessing operations to construct messages for the `Round1` of communication.
@@ -26,7 +29,7 @@ impl Prepare {
         O: Push<Msg<MessageRound1>>,
     {
         // Generate `nonce` from the held private key
-        let (nonce, state1) = sign(self.key_pair.clone());
+        let (nonce, state1) = sign(self.key_pair.clone())?;
 
         // The message of the `Round1` needs to pass `nonce` and `public key`
         //
@@ -37,9 +40,9 @@ impl Prepare {
             sender: self.my_ind,
             receiver: None,
             body: MessageRound1 {
-                ephemeral_keys: nonce,
+                ephemeral_keys: PublicKey::convert_to_vec(nonce),
                 message: self.message.clone(),
-                pubkey: self.key_pair.public_key,
+                pubkey: self.key_pair.public_key.serialize().to_vec(),
             },
         });
 
@@ -66,9 +69,9 @@ pub struct Round1 {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct MessageRound1 {
-    pub ephemeral_keys: Vec<GE>,
+    pub ephemeral_keys: Vec<Vec<u8>>,
     pub message: Vec<u8>,
-    pub pubkey: GE,
+    pub pubkey: Vec<u8>,
 }
 
 impl Round1 {
@@ -82,27 +85,38 @@ impl Round1 {
 
         for i in 0..input.msgs.len() {
             if i + 1 == cur_ind {
-                pks.push(self.key_pair.public_key);
+                pks.push(self.key_pair.public_key.clone());
             }
-            pks.push(input.msgs[i].pubkey);
-            received_nonce.push(input.msgs[i].ephemeral_keys.clone());
+            let mut tt = [0u8; 65];
+            tt.copy_from_slice(input.msgs[i].pubkey.as_slice());
+
+            if let Ok(pk) = PublicKey::parse(&tt) {
+                pks.push(pk);
+            } else {
+                warn!("pks push failed, `PublicKey::parse(&tt)` meet error");
+            }
+            received_nonce.push(PublicKey::convert_from_vec(
+                input.msgs[i].ephemeral_keys.clone(),
+            ));
         }
         if input.msgs.len() + 1 == cur_ind {
-            pks.push(self.key_pair.public_key);
+            pks.push(self.key_pair.public_key.clone());
         }
         let party_index: usize = (self.my_ind - 1) as usize;
         println!("pks:{:?}", pks);
-        let key_agg = KeyAgg::key_aggregation_n(&pks, party_index);
+        let key_agg = KeyAgg::key_aggregation_n(&pks, party_index)?;
         let (state2, sign_fragment) =
             self.state1
-                .sign_prime(&self.message, &pks, received_nonce.clone(), party_index);
+                .sign_prime(&self.message, &pks, received_nonce.clone(), party_index)?;
         let (commit, r, _) =
             self.state1
-                .compute_global_params(&self.message, &pks, received_nonce, party_index);
+                .compute_global_params(&self.message, &pks, received_nonce, party_index)?;
         output.push(Msg {
             sender: self.my_ind,
             receiver: None,
-            body: MessageRound2 { sign_fragment },
+            body: MessageRound2 {
+                sign_fragment: sign_fragment.serialize().to_vec(),
+            },
         });
 
         Ok(Round2 {
@@ -112,6 +126,7 @@ impl Round1 {
             state2,
             key_pair: self.key_pair,
             key_agg,
+            message: self.message,
         })
     }
     pub fn expects_messages(party_i: u16, party_n: u16) -> Store<BroadcastMsgs<MessageRound1>> {
@@ -127,33 +142,39 @@ impl Round1 {
 #[derive(Debug)]
 pub struct Round2 {
     pub my_ind: u16,
-    pub commit: BigInt,
-    pub r: GE,
+    pub commit: PrivateKey,
+    pub r: PublicKey,
     pub state2: StatePrime,
     pub key_pair: KeyPair,
     pub key_agg: KeyAgg,
+    pub message: Vec<u8>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct MessageRound2 {
-    pub sign_fragment: FE,
+    pub sign_fragment: Vec<u8>,
 }
 
 impl Round2 {
     pub fn proceed(self, input: BroadcastMsgs<MessageRound2>) -> Result<SignResult> {
         let mut received_round2 = vec![];
         for i in 0..input.msgs.len() {
-            received_round2.push(input.msgs[i].sign_fragment);
+            received_round2.push(PrivateKey::parse_slice(&input.msgs[i].sign_fragment)?);
         }
-        let s = sign_double_prime(self.state2, &received_round2);
+        let s = sign_double_prime(self.state2, &received_round2)?;
+
+        let signature = Signature {
+            rx: PrivateKey::parse_slice(&self.r.x_coor()).unwrap(),
+            s: s.clone(),
+        };
 
         assert!(verify(
-            &s,
-            &self.r.x_coor().unwrap(),
+            &signature,
+            &Message::parse_slice(&self.message).unwrap(),
             &self.key_agg.X_tilde,
-            &self.commit
         )
         .is_ok());
+
         println!("party index:{} verify success.", self.my_ind);
         Ok(SignResult {
             r: self.r,
@@ -172,9 +193,9 @@ impl Round2 {
 
 #[derive(Debug)]
 pub struct SignResult {
-    pub r: GE,
-    pub s: FE,
-    pub commit: BigInt,
+    pub r: PublicKey,
+    pub s: PrivateKey,
+    pub commit: PrivateKey,
 }
 
 // Messages
@@ -195,4 +216,11 @@ type Result<T> = std::result::Result<T, ProceedError>;
 #[derive(Debug, PartialEq)]
 pub enum ProceedError {
     PartiesDidntRevealItsSeed { party_ind: Vec<u16> },
+    Musig2Error,
+}
+
+impl From<Musig2Error> for ProceedError {
+    fn from(_: Musig2Error) -> Self {
+        ProceedError::Musig2Error
+    }
 }

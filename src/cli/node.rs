@@ -170,7 +170,7 @@ impl Node {
     /// Start a musig2 session for the incoming message m to generate an aggregate signature
     pub async fn handle_sign(&mut self, cmd: &str) {
         let rest = cmd.strip_prefix("sign ").unwrap();
-        let msg = Vec::from(rest.as_bytes());
+        let msg = format_musig_msg(Vec::from(rest.as_bytes()));
         info!("handle sign {:?}", msg);
 
         self.start_musig2(msg.clone()).await;
@@ -253,4 +253,15 @@ impl Node {
             }
         }
     }
+}
+
+pub fn format_musig_msg(msg: Vec<u8>) -> Vec<u8> {
+    let v = if msg.as_slice().len() < 32 {
+        let mut v = vec![0u8; 32 - msg.as_slice().len()];
+        v.extend_from_slice(msg.as_slice());
+        v
+    } else {
+        msg.as_slice().to_vec()
+    };
+    Vec::from(&v[..32])
 }

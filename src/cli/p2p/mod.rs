@@ -14,7 +14,7 @@ pub use msg::*;
 pub use transport::build_transport;
 // pub use swarm::*;
 
-use super::protocals::signature;
+use super::protocals::musig2::KeyPair;
 use crate::cli::party::{
     musig2_instance::ProtocolMessage, musig2_party::Sender, traits::state_machine::Msg,
 };
@@ -23,7 +23,7 @@ use tokio::sync::broadcast;
 /// Type alias for [`libp2p::Swarm`] running the [`behaviour::Behaviour`] with the given [`SignatureBehaviour`].
 pub type TSwarm = libp2p::swarm::Swarm<behaviour::SignatureBehaviour>;
 /// Type alias for [`cuve::secp256k1::keypair`]
-pub type Keyring = signature::KeyPair;
+pub type Keyring = KeyPair;
 
 const DEFAULT_LISTENING_ADDRESS: &str = "/ip4/0.0.0.0/tcp/0";
 const DEFAULT_TOPIC: &str = "test";
@@ -53,7 +53,8 @@ impl SwarmOptions {
     /// Creates for any testing purposes.
     pub fn new_test_options(tx_node: broadcast::Sender<CallMessage>, tx_party: Sender) -> Self {
         let keypair = Keypair::generate_secp256k1();
-        let keyring = Keyring::create();
+        let keyring = Keyring::create().expect("keyring should be created");
+
         let peer_id = PeerId::from(keypair.public());
         let topic = Topic::new(DEFAULT_TOPIC);
 
