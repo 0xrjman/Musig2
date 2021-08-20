@@ -10,6 +10,9 @@ use crate::cli::protocals::{
 use curv::{elliptic::curves::traits::ECPoint, BigInt};
 use serde::{Deserialize, Serialize};
 
+/// Prepare round performs preprocessing operations to construct messages for the `Round1` of communication.
+///
+/// The main work of the preparation process is to generate nonce and construct messages.
 #[derive(Debug)]
 pub struct Prepare {
     pub my_ind: u16,
@@ -22,13 +25,19 @@ impl Prepare {
     where
         O: Push<Msg<MessageRound1>>,
     {
-        let (ephemeral_keys, state1) = sign(self.key_pair.clone());
+        // Generate `nonce` from the held private key
+        let (nonce, state1) = sign(self.key_pair.clone());
 
+        // The message of the `Round1` needs to pass `nonce` and `public key`
+        //
+        // Nonce is necessary for the musig2 scheme, but due to the adoption of libp2p
+        // it is difficult for participants to exchange the public key offline in advance
+        // so the public key is also exchanged in the `Round1` of messages.
         output.push(Msg {
             sender: self.my_ind,
             receiver: None,
             body: MessageRound1 {
-                ephemeral_keys,
+                ephemeral_keys: nonce,
                 message: self.message.clone(),
                 pubkey: self.key_pair.public_key,
             },

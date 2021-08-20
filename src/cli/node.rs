@@ -30,7 +30,7 @@ pub struct Node {
     pub rx_party: broadcast::Receiver<Msg<ProtocolMessage>>,
     /// Responsible for receiving message delivered internally
     ///
-    /// Example: node needs to process the `[CallMessage::CoopSign]` received by floodsub
+    /// Example: node needs to proceed the `[CallMessage::CoopSign]` received by floodsub
     pub rx_inter: broadcast::Receiver<CallMessage>,
 }
 

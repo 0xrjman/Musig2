@@ -18,7 +18,7 @@ pub trait StateMachine {
     /// Output of the protocol if it successfully terminates
     type Output;
 
-    /// Process received message
+    /// Proceed received message
     ///
     /// ## Returns
     /// Handling message might result in error, but it doesn't mean that computation should
