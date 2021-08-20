@@ -1,24 +1,21 @@
 use serde::{Deserialize, Serialize};
 
-use crate::cli::{
-    party::{musig2_instance::ProtocolMessage, traits::state_machine::Msg},
-    protocals::signature::*,
-};
+use crate::cli::party::{musig2_instance::ProtocolMessage, traits::state_machine::Msg};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum EventType {
-    Response(Message),
+    // Response(Message),
     Input(String),
-    Send(Message),
+    // Send(Message),
     AsyncResponse(Msg<ProtocolMessage>),
     CallPeers(CallMessage),
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub enum Message {
-    Round1(Round1),
-    Round2(Round2),
-}
+// #[derive(Debug, Serialize, Deserialize, Clone)]
+// pub enum Message {
+//     Round1(Round1),
+//     Round2(Round2),
+// }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum CallMessage {

@@ -217,9 +217,9 @@ impl Node {
                         self.publish_msg(m, topic.clone());
                         info!("publish msg succeed, topic: {:?}", topic);
                     }
-                    EventType::Response(_resp) => {
-                        debug!("EventType::Response, has been deprecated")
-                    }
+                    // EventType::Response(_resp) => {
+                    //     debug!("EventType::Response, has been deprecated")
+                    // }
                     EventType::CallPeers(call) => match call {
                         CallMessage::CoopSign(mut sign_info) => {
                             let cmd = sign_info.get_cmd("sign");
@@ -241,14 +241,14 @@ impl Node {
                         cmd if cmd.starts_with("list") => self.handle_list(cmd).await,
                         _ => error!("unknown command"),
                     },
-                    EventType::Send(m) => match m {
-                        Message::Round1(_r1) => {
-                            debug!("send round1, has been deprecated");
-                        }
-                        Message::Round2(_r2) => {
-                            debug!("send round2, has been deprecated");
-                        }
-                    },
+                    // EventType::Send(m) => match m {
+                    //     Message::Round1(_r1) => {
+                    //         debug!("send round1, has been deprecated");
+                    //     }
+                    //     Message::Round2(_r2) => {
+                    //         debug!("send round2, has been deprecated");
+                    //     }
+                    // },
                 }
             }
         }

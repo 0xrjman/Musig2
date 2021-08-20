@@ -1,5 +1,5 @@
 //! P2P handling for musig2 nodes.
-use super::{CallMessage, Message, SwarmOptions};
+use super::{CallMessage, SwarmOptions};
 use crate::cli::party::{musig2_instance::ProtocolMessage, traits::state_machine::Msg};
 use libp2p::{
     floodsub::{Floodsub, FloodsubEvent},
@@ -7,7 +7,7 @@ use libp2p::{
     swarm::NetworkBehaviourEventProcess,
     NetworkBehaviour,
 };
-use log::{debug, info};
+use log::info;
 
 #[derive(NetworkBehaviour)]
 pub struct SignatureBehaviour {
@@ -57,12 +57,16 @@ impl NetworkBehaviourEventProcess<void::Void> for SignatureBehaviour {
 impl NetworkBehaviourEventProcess<FloodsubEvent> for SignatureBehaviour {
     fn inject_event(&mut self, event: FloodsubEvent) {
         if let FloodsubEvent::Message(msg) = event {
-            // Pass received ProtocolMessage to node through internal channel
+            // Forward musig2 protocol messages to session
+            //
+            // If there is more than one session, there should be a layer of filtering
+            // since the forwarding destination should be determined.
             if let Ok(resp) = serde_json::from_slice::<Msg<ProtocolMessage>>(&msg.data) {
                 info!("received message form peers");
                 self.options().tx_party.send(resp).unwrap();
             }
 
+            // Pass received ProtocolMessage to node through internal channel
             if let Ok(call) = serde_json::from_slice::<CallMessage>(&msg.data) {
                 info!("Receive a call from peers, {:?}", call);
                 match call {
@@ -73,16 +77,16 @@ impl NetworkBehaviourEventProcess<FloodsubEvent> for SignatureBehaviour {
                 }
             }
 
-            if let Ok(resp) = serde_json::from_slice::<Message>(&msg.data) {
-                match resp {
-                    Message::Round1(_r1) => {
-                        debug!("received round 1 message, it has been deprecated")
-                    }
-                    Message::Round2(_r2) => {
-                        debug!("received round 1 message, it has been deprecated")
-                    }
-                }
-            }
+            // if let Ok(resp) = serde_json::from_slice::<Message>(&msg.data) {
+            //     match resp {
+            //         Message::Round1(_r1) => {
+            //             debug!("received round 1 message, it has been deprecated")
+            //         }
+            //         Message::Round2(_r2) => {
+            //             debug!("received round 1 message, it has been deprecated")
+            //         }
+            //     }
+            // }
         };
     }
 }
