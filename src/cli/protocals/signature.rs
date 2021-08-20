@@ -17,6 +17,7 @@
 // TODO: add support to bip340
 
 #![allow(non_snake_case)]
+#![allow(dead_code)]
 
 use curv::arithmetic::traits::Converter;
 use curv::cryptographic_primitives::commitments::hash_commitment::HashCommitment;
@@ -27,10 +28,8 @@ use curv::cryptographic_primitives::proofs::*;
 use curv::elliptic::curves::traits::*;
 use curv::BigInt;
 
-use serde::{Deserialize, Serialize};
-
-type GE = curv::elliptic::curves::secp256_k1::GE;
-type FE = curv::elliptic::curves::secp256_k1::FE;
+pub type GE = curv::elliptic::curves::secp256_k1::GE;
+pub type FE = curv::elliptic::curves::secp256_k1::FE;
 
 #[allow(non_upper_case_globals)]
 const Nv: usize = 2;
@@ -43,8 +42,11 @@ pub struct KeyPair {
 
 impl KeyPair {
     pub fn create() -> KeyPair {
+        // Generator Point
         let ec_point: GE = ECPoint::generator();
+        // Random private key
         let private_key: FE = ECScalar::new_random();
+        // pk = d * G
         let public_key = ec_point.scalar_mul(&private_key.get_element());
         KeyPair {
             public_key,
@@ -52,15 +54,15 @@ impl KeyPair {
         }
     }
 
-    // pub fn create_from_private_key(private_key: &BigInt) -> KeyPair {
-    //     let ec_point: GE = ECPoint::generator();
-    //     let private_key: FE = ECScalar::from(private_key);
-    //     let public_key = ec_point.scalar_mul(&private_key.get_element());
-    //     KeyPair {
-    //         public_key,
-    //         private_key,
-    //     }
-    // }
+    pub fn create_from_private_key(private_key: &BigInt) -> KeyPair {
+        let ec_point: GE = ECPoint::generator();
+        let private_key: FE = ECScalar::from(private_key);
+        let public_key = ec_point.scalar_mul(&private_key.get_element());
+        KeyPair {
+            public_key,
+            private_key,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -153,12 +155,12 @@ impl EphemeralKey {
     }
 }
 
-// pub fn hash_tag_challange(r_hat: &GE, X_tilde: &GE) -> BigInt {
-//     HSha256::create_hash(&[
-//         &r_hat.x_coor().unwrap(),
-//         &X_tilde.bytes_compressed_to_big_int(),
-//     ])
-// }
+pub fn hash_tag_challange(r_hat: &GE, X_tilde: &GE) -> BigInt {
+    HSha256::create_hash(&[
+        &r_hat.x_coor().unwrap(),
+        &X_tilde.bytes_compressed_to_big_int(),
+    ])
+}
 
 pub fn hash_tag(r_hat: &GE, X_tilde: &GE) -> BigInt {
     HSha256::create_hash(&[
@@ -222,7 +224,7 @@ impl State {
         lin_comb_ephemeral_i + (c_fe * x.private_key * a_fe)
     }
 
-    // compute global parameters: c, R, and the b's coefficients
+    // Compute global parameters: c, R, and the b's coefficients
     pub fn compute_global_params(
         &self,
         message: &[u8],
@@ -299,19 +301,19 @@ pub fn verify(
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct Round1 {
-    pub topic: String,
-    pub sender: Vec<u8>,
-    pub num: usize,
-    pub ephemeral_keys: Vec<GE>,
-    pub msg: Vec<u8>,
-    pub pubkey: GE,
-}
+// #[derive(Serialize, Deserialize, Debug, Clone)]
+// pub struct Round1 {
+//     pub topic: String,
+//     pub sender: Vec<u8>,
+//     pub num: usize,
+//     pub ephemeral_keys: Vec<GE>,
+//     pub msg: Vec<u8>,
+//     pub pubkey: GE,
+// }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct Round2 {
-    pub topic: String,
-    pub sender: Vec<u8>,
-    pub sign: FE,
-}
+// #[derive(Serialize, Deserialize, Debug, Clone)]
+// pub struct Round2 {
+//     pub topic: String,
+//     pub sender: Vec<u8>,
+//     pub sign: FE,
+// }

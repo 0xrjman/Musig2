@@ -1,61 +1,203 @@
+use super::{
+    p2p::*,
+    party::{Musig2Instance, Musig2Party},
+};
+use crate::cli::party::{
+    async_protocol::AsyncProtocol,
+    musig2_instance::ProtocolMessage,
+    musig2_party::{incoming, Outgoing},
+    traits::state_machine::{Msg, StateMachine},
+    watcher::StderrWatcher,
+    AsyncSession, MSESSION_ID,
+};
 use libp2p::{
+    core::ConnectedPoint,
     floodsub::Topic,
     futures::StreamExt,
     swarm::{Swarm, SwarmEvent},
+    Multiaddr, PeerId,
 };
-use log::{debug, error};
+use log::{debug, error, info};
 use std::error::Error;
-use tokio::io::AsyncBufReadExt;
+use tokio::{io::AsyncBufReadExt, sync::broadcast};
 
-use super::p2p::*;
-use crate::*;
 pub struct Node {
+    /// Manage the connection of peers
     swarm: TSwarm,
-    pub other: Other,
-}
-
-pub struct Other {
-    topic: Topic,
+    /// Responsible for managing signing sessions for musig
+    pub party: Musig2Party<Multiaddr>,
+    /// Responsible for receiving message from party
+    pub rx_party: broadcast::Receiver<Msg<ProtocolMessage>>,
+    /// Responsible for receiving message delivered internally
+    ///
+    /// Example: node needs to proceed the `[CallMessage::CoopSign]` received by floodsub
+    pub rx_inter: broadcast::Receiver<CallMessage>,
 }
 
 impl Node {
     pub async fn init() -> Node {
-        // let (response_sender, mut _response_rcv) = mpsc::unbounded_channel();
-        let options = SwarmOptions::new_test_options();
-        let mut swarm = create_swarm(options).await.unwrap();
-        let topic = swarm.behaviour_mut().options().topic.clone();
+        // Sending message from node to party
+        let (tx_party, rx_node) = broadcast::channel(50);
+        // Sending message from party to node
+        let (tx_node, rx_party) = broadcast::channel(50);
+        // Used as internal communication
+        let (tx_inter, rx_inter) = broadcast::channel(50);
+
+        let options = SwarmOptions::new_test_options(tx_inter, tx_party);
+        let swarm = create_swarm(options.clone()).await.unwrap();
+
+        let party = Musig2Party::new(tx_node, rx_node);
 
         Node {
             swarm,
-            other: Other { topic },
+            party,
+            rx_party,
+            rx_inter,
         }
     }
 
-    pub async fn run(&mut self) -> Result<(), Box<dyn Error>> {
-        let mut stdin = tokio::io::BufReader::new(tokio::io::stdin()).lines();
-        Swarm::listen_on(
-            &mut self.swarm,
-            "/ip4/0.0.0.0/tcp/0"
-                .parse()
-                .expect("can get a local socket"),
-        )
-        .expect("swarm can be started");
-        SIGNSTATE
-            .lock()
-            .unwrap()
-            .insert(TOPIC.to_owned(), SignState::Round2End);
+    pub async fn start_musig2(&mut self, msg: Vec<u8>) {
+        info!("try to generate instance, msg is {:?}", msg);
+        // First, get the necessary parameters for running Musig2
+        let key_pair = self.swarm.behaviour_mut().options().keyring.clone();
+        let cur_peer_id = self.swarm.behaviour_mut().options().peer_id;
+        // Get all connected peers as signature participants
+        let mut peer_ids = self.party.peer_ids.clone();
+        // The current peer is also one of the participants in musig2
+        peer_ids.push(cur_peer_id);
+        // Musig2 requires that the set of signers be orderly
+        peer_ids.sort();
 
+        let party_n = peer_ids.len() as u16;
+        let mut party_i = 0;
+        for (k, peer_id) in peer_ids.iter().enumerate() {
+            if peer_id.as_ref() == cur_peer_id.as_ref() {
+                party_i = (k + 1) as u16;
+            }
+        }
+        info!(
+            "musig2 peer_ids: {:?}\ncurrent party_i: {:?}",
+            peer_ids, party_i
+        );
+
+        let instance = Musig2Instance::with_fixed_seed(party_i, party_n, msg, key_pair);
+        // self.party.add_instance(instance, rx.clone());
+
+        // (Node)Receive messages from node
+        let rx_node = self.swarm.behaviour_mut().options().tx_party.subscribe();
+        let incoming = incoming(rx_node, instance.party_ind());
+
+        // (Session)Send messages to node
+        let tx_node = self.party.tx_node.clone();
+        let outgoing = Outgoing { sender: tx_node };
+
+        // Create a async instance which can run as musig2
+        let async_instance =
+            AsyncProtocol::new(instance, incoming, outgoing).set_watcher(StderrWatcher);
+
+        // Create a session to manage the running musig2 instance
+        let session = AsyncSession::with_fixed_instance(
+            MSESSION_ID.to_string(),
+            async_instance,
+            self.party.parties.clone(),
+            self.party.peer_ids.clone(),
+        );
+        self.run_session(session).await;
+    }
+
+    /// Run a musig2 session asynchronously
+    pub async fn run_session(&self, mut session: AsyncSession) {
+        tokio::spawn(async move {
+            info!("================ session.run start ==================",);
+            session.run().await;
+            info!("================ session.run over  ==================",);
+        });
+    }
+
+    /// Broadcast messages from running session to other peers
+    /// Only peers that subscribe to the same topic can receive the message
+    pub fn publish_msg(&mut self, msg: Msg<ProtocolMessage>, topic: Topic) {
+        // Serialize message to data stream
+        let json = serde_json::to_string(&msg).expect("can jsonify response");
+
+        self.swarm
+            .behaviour_mut()
+            .floodsub
+            .publish(topic, json.as_bytes());
+    }
+
+    /// Call on other peers to complete the musig2 aggregate signature
+    ///
+    /// Currently, each peer that has established a connection with the current node will participate in the musig2
+    /// In later planning, we need to optimize for this, since each session should have its own set of musig2 participants
+    pub fn call_peers(&mut self, msg: SignInfo) {
+        let topic = self.swarm.behaviour_mut().options().topic.clone();
+        // Passing communication messages `[CallMessage::CoopSign]` to other peers
+        let call = CallMessage::CoopSign(msg);
+        let json = serde_json::to_string(&call).expect("can jsonify response");
+
+        self.swarm
+            .behaviour_mut()
+            .floodsub
+            .publish(topic, json.as_bytes());
+    }
+
+    pub fn add_party(&mut self, addr: Multiaddr, peer_id: PeerId) {
+        self.party.add_party(addr);
+        self.party.add_peer_id(peer_id);
+    }
+
+    pub fn remove_party(&mut self, addr: Multiaddr, peer_id: PeerId) {
+        self.party.remove_party(addr);
+        self.party.remove_peer_id(peer_id);
+    }
+
+    pub fn list_parties(&mut self) {
+        // let peer_id = self.swarm.behaviour_mut().options().peer_id;
+        info!("Connected parties:");
+        for p in self.party.parties.iter() {
+            info!("{}", p);
+        }
+    }
+
+    /// Lists all peers that are currently remaining connected
+    async fn handle_list(&mut self, cmd: &str) {
+        let order = cmd.strip_prefix("list ").unwrap();
+        info!("handle list {:?}", order);
+        self.list_parties();
+    }
+
+    /// Start a musig2 session for the incoming message m to generate an aggregate signature
+    pub async fn handle_sign(&mut self, cmd: &str) {
+        let rest = cmd.strip_prefix("sign ").unwrap();
+        let msg = Vec::from(rest.as_bytes());
+        info!("handle sign {:?}", msg);
+
+        self.start_musig2(msg.clone()).await;
+    }
+
+    pub async fn run(&mut self) -> Result<(), Box<dyn Error>> {
+        let addr = self.swarm.behaviour_mut().options().listening_addrs.clone();
+        Swarm::listen_on(&mut self.swarm, addr).expect("swarm can be started");
+
+        let mut stdin = tokio::io::BufReader::new(tokio::io::stdin()).lines();
         loop {
             let evt = {
                 tokio::select! {
                     line = stdin.next_line() => Some(EventType::Input(line.expect("can get line").expect("can read line from stdin"))),
                     event = self.swarm.select_next_some() => {
                         match event {
-                            SwarmEvent::ConnectionEstablished { endpoint, .. } => {
-                                debug!("Connected in {:?}", endpoint)
+                            SwarmEvent::ConnectionEstablished { endpoint, peer_id, .. } => {
+                                if let ConnectedPoint::Dialer { address } = endpoint {
+                                    self.add_party(address.clone(), peer_id);
+                                    debug!("Connected in {:?}", address);
+                                };
                             },
-                            SwarmEvent::ConnectionClosed { endpoint, .. } => {
-                                debug!("Connection closed in {:?}", endpoint)
+                            SwarmEvent::ConnectionClosed { endpoint, peer_id, .. } => {
+                                if let ConnectedPoint::Dialer { address } = endpoint {
+                                    self.remove_party(address.clone(), peer_id);
+                                    debug!("Connection closed in {:?}", address);
+                                };
                             },
                             _ => {
                                 debug!("Unhandled Swarm Event: {:?}", event)
@@ -63,104 +205,52 @@ impl Node {
                         };
                         None
                     },
-                    // response = response_rcv.recv() => Some(EventType::Response(response.expect("response exists"))),
-                    send = state_into_event(SIGNSTATE.lock().unwrap().get(&self.other.topic.clone()).unwrap().clone()) => send,
+                    recv_party = self.rx_party.recv() => Some(EventType::AsyncResponse(recv_party.expect("recv exists"))),
+                    recv_inter = self.rx_inter.recv() => Some(EventType::CallPeers(recv_inter.expect("recv_inter exists"))),
                 }
             };
 
             if let Some(event) = evt {
                 match event {
-                    EventType::Response(resp) => {
-                        let json = serde_json::to_string(&resp).expect("can jsonify response");
-                        self.swarm
-                            .behaviour_mut()
-                            .floodsub()
-                            .publish(TOPIC.to_owned(), json.as_bytes());
+                    EventType::AsyncResponse(m) => {
+                        let topic = self.swarm.behaviour_mut().options().topic.clone();
+                        self.publish_msg(m, topic.clone());
+                        info!("publish msg succeed, topic: {:?}", topic);
                     }
-                    EventType::Input(line) => match line.as_str() {
-                        cmd if cmd.starts_with("sign") => handle_sign(cmd, &mut self.swarm).await,
-                        cmd if cmd.starts_with("verify") => {
-                            self.swarm.behaviour_mut().verify_sign().await
+                    // EventType::Response(_resp) => {
+                    //     debug!("EventType::Response, has been deprecated")
+                    // }
+                    EventType::CallPeers(call) => match call {
+                        CallMessage::CoopSign(mut sign_info) => {
+                            let cmd = sign_info.get_cmd("sign");
+                            self.handle_sign(&cmd).await;
                         }
+                    },
+                    EventType::Input(line) => match line.as_str() {
+                        cmd if cmd.starts_with("sign") => {
+                            let msg = cmd.strip_prefix("sign ").unwrap();
+                            info!("sign msg: {:?}", msg);
+                            self.call_peers(SignInfo::new(msg.to_string()));
+                            self.handle_sign(cmd).await;
+                        }
+                        cmd if cmd.starts_with("verify") => {
+                            // todo! Verify the signature
+                        }
+                        // List the peer nodes that are currently connected
+                        // Example: $ list p
+                        cmd if cmd.starts_with("list") => self.handle_list(cmd).await,
                         _ => error!("unknown command"),
                     },
-                    EventType::Send(m) => {
-                        self.swarm.behaviour_mut().floodsub().publish(
-                            TOPIC.to_owned(),
-                            serde_json::to_string(&m).unwrap().as_bytes(),
-                        );
-                        match m {
-                            Message::Round1(r1) => {
-                                println!(
-                                    "peerid send round1:{:?}",
-                                    self.swarm.behaviour_mut().options().peer_id.clone()
-                                );
-                                MSG.lock().unwrap().insert(TOPIC.to_owned(), r1.msg.clone());
-                                if let Some(s) = PENDINGSTATE.lock().unwrap().get(&TOPIC.to_owned())
-                                {
-                                    SIGNSTATE
-                                        .lock()
-                                        .unwrap()
-                                        .insert(TOPIC.to_owned(), s.clone());
-                                } else {
-                                    SIGNSTATE
-                                        .lock()
-                                        .unwrap()
-                                        .insert(TOPIC.to_owned(), SignState::Round1Send);
-                                }
-                            }
-                            Message::Round2(_) => {
-                                println!(
-                                    "peerid send round2:{:?}",
-                                    self.swarm.behaviour_mut().options().peer_id.clone()
-                                );
-                                SIGNSTATE
-                                    .lock()
-                                    .unwrap()
-                                    .insert(TOPIC.to_owned(), SignState::Round2Send);
-                            }
-                        }
-                    }
+                    // EventType::Send(m) => match m {
+                    //     Message::Round1(_r1) => {
+                    //         debug!("send round1, has been deprecated");
+                    //     }
+                    //     Message::Round2(_r2) => {
+                    //         debug!("send round2, has been deprecated");
+                    //     }
+                    // },
                 }
             }
         }
     }
-}
-
-pub async fn state_into_event(e: SignState) -> Option<EventType> {
-    match e {
-        SignState::Prepare(r1) => Some(EventType::Send(r1)),
-        SignState::Round1End(r2) => Some(EventType::Send(r2)),
-        SignState::Round1Send => {
-            if let Some(s) = PENDINGSTATE.lock().unwrap().get(&TOPIC.to_owned()) {
-                SIGNSTATE
-                    .lock()
-                    .unwrap()
-                    .insert(TOPIC.to_owned(), s.clone());
-                None
-            } else {
-                None
-            }
-        }
-        _ => None,
-    }
-}
-
-pub async fn handle_sign(cmd: &str, swarm: &mut Swarm<SignatureBehaviour>) {
-    let topic = swarm.behaviour_mut().options().topic.clone();
-    let rest = cmd.strip_prefix("sign ").unwrap();
-    let msg = Vec::from(rest.as_bytes());
-    let state = SIGNSTATE.lock().unwrap().get(&topic).unwrap().clone();
-    if let SignState::Round2End = state {
-        SIGNSTATE
-            .lock()
-            .unwrap()
-            .insert(topic.clone(), SignState::Round1Send);
-        println!(
-            "peerid start sign, send round1:{:?}",
-            swarm.behaviour_mut().options().peer_id.clone()
-        );
-        MSG.lock().unwrap().insert(topic, msg.clone());
-        swarm.behaviour_mut().solve_msg_in_generating_round_1(msg);
-    };
 }
